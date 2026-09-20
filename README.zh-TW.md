@@ -138,3 +138,22 @@ Pull requests 也歡迎。
 ## License
 
 [Apache License 2.0](LICENSE)
+
+
+---
+
+## 桌面版免指令整合（Codex Desktop 專用 Skill）
+
+如果你平時習慣使用 **Codex 桌面版** 與 **Claude Desktop**，完全不需要開啟終端機手動輸入指令。
+
+本 Fork 額外提供了 `skills/claude-handoff`，將其安裝至 `~/.codex/skills/claude-handoff/` 後即可使用。
+
+### 使用情境：Claude 達到 5 小時額度上限時
+
+1. 在 **Claude Desktop** 遇到額度限制或想換手時，記住當前任務主題或複製 Session ID。
+2. 直接在 **Codex 桌面版** 對話框輸入：
+   - 「接手 Claude 最近的 session」
+   - 「接手 Claude 剛剛關於 [專案/功能] 的對話」
+   - 「讀取 Claude session `<id>`」
+3. Codex 會在背景自動透過二進位過濾器靜態清洗 `~/.claude/projects/` 的對話紀錄（壓縮 80%+ 雜訊），直接載入核心推理與程式碼進度，無縫續做！
+
