@@ -173,11 +173,13 @@ function Install-Skills {
 function Show-NextSteps {
     Write-Host ''
     Write-Host 'Getting started'
-    Write-Host '  Stage 1: 請彙整目前工作並在專案根目錄產出 HANDOFF.md，供下一個 Agent 接手。'
-    Write-Host '  Stage 2: 請讀取專案根目錄的 HANDOFF.md，核對目前狀態，接手並繼續執行下一步。'
-    Write-Host ''
-    Write-Host 'Claude Desktop requires a one-time manual upload:'
-    Write-Host "  Customize > Skills > + Create skill > Upload a skill > $ClaudeDesktopPackage"
+    Write-Host '  Stage 1: Summarize the current work into HANDOFF.md for the next agent.'
+    Write-Host '  Stage 2: Read HANDOFF.md, verify the workspace, and continue the next step.'
+    if (Test-Path -LiteralPath $ClaudeDesktopPackage) {
+        Write-Host ''
+        Write-Host 'Claude Desktop requires a one-time manual upload:'
+        Write-Host "  Customize > Skills > + Create skill > Upload a skill > $ClaudeDesktopPackage"
+    }
     Write-Host ''
     Write-Host 'Advanced CLI examples:'
     Write-Host '  cc-session list'
