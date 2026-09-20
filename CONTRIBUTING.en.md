@@ -17,5 +17,5 @@ Thank you for your interest in this project! This repository is a maintained for
      powershell -NoProfile -File tools/dev_check.ps1
      ```
    - Ensure the check outputs `WINDOWS DEV CHECK GREEN`.
-4. **Bilingual Documentation**:
-   - Traditional Chinese is the primary documentation. Any changes must be mirrored in the corresponding English documentation (`.en.md`).
+4. **Bilingual Public Documentation**:
+   - Keep Traditional Chinese and English versions of upstream public Markdown synchronized. Fork-local governance files may remain Traditional Chinese only.

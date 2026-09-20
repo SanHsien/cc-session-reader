@@ -7,3 +7,4 @@ coverage.out
 dist/
 /cc-session
 .claude/
+/upstream-review-report.md

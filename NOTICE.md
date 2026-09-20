@@ -1,4 +1,4 @@
- cc-session-reader (Windows & Codex Desktop Fork)
+ cc-session-reader (Windows & Multi-Agent Handoff Fork)
  Copyright 2026 SanHsien
  Original work Copyright 2026 Maple！
  
@@ -7,5 +7,5 @@
  
  Modifications in this fork:
  - Windows-only build and packaging configuration.
- - Native integration skill for OpenAI Codex Desktop.
+ - A two-stage HANDOFF.md skill for Codex, Claude, Cursor, Antigravity, Hermes, and other agents.
  - Traditional Chinese documentation and governance manifests.

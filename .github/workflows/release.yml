@@ -1,0 +1,50 @@
+name: Windows Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Test
+        shell: pwsh
+        run: go test ./...
+
+      - name: Build release assets
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          foreach ($arch in @('amd64', 'arm64')) {
+            $env:CGO_ENABLED = '0'
+            $env:GOOS = 'windows'
+            $env:GOARCH = $arch
+            $archiveDir = Join-Path $env:RUNNER_TEMP "cc-session-$arch"
+            New-Item -ItemType Directory -Path $archiveDir -Force | Out-Null
+            go build -trimpath -ldflags "-s -w -X main.version=${{ github.ref_name }} -X main.commit=${{ github.sha }}" -o (Join-Path $archiveDir 'cc-session.exe') ./cmd/cc-session/
+            Compress-Archive -LiteralPath (Join-Path $archiveDir 'cc-session.exe') -DestinationPath "dist/cc-session-reader_${version}_windows_${arch}.zip" -Force
+          }
+          Get-ChildItem dist/*.zip | Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))" } |
+            Set-Content -LiteralPath dist/checksums.txt -Encoding ascii
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" --verify-tag --generate-notes dist/*

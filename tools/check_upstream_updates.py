@@ -29,7 +29,6 @@ REPO_ROOT = SCRIPT_DIR.parent
 BASELINE_PATH = SCRIPT_DIR / "upstream_baseline.json"
 UPSTREAM_REF_PREFIX = "refs/upstream-check"
 DEFAULT_DECISION_LOG = "docs/fork/DECISIONS.md"
-DEFAULT_DECISION_LOG = "docs/fork/DECISIONS.md"
 TRACK_MODES = ("release", "commit")
 _SEMVER_TAG_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 

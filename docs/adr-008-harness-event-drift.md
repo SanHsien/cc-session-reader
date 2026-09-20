@@ -1,5 +1,7 @@
 # ADR-008：追上 harness 事件格式的漂移，並把 turn 計數從字元統計裡拆出來
 
+[繁體中文](adr-008-harness-event-drift.md) | [English](adr-008-harness-event-drift.en.md)
+
 **狀態**：已實作。
 
 Reader 靠比對字面字串認出 Claude Code 寫進 transcript 的事件。那些字串會變，而且已經變過了。

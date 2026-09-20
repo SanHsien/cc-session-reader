@@ -1,5 +1,7 @@
 # ADR-005: Collapse Retry Loops and Consecutive Same-File Reads
 
+[English](adr-005-collapse-retry-loops-and-reads.md) | [繁體中文](adr-005-collapse-retry-loops-and-reads.zh-TW.md)
+
 ## Status
 
 Accepted

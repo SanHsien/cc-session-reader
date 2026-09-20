@@ -1,5 +1,7 @@
 # ADR-001: Collapse cc-session tool calls in rendered output
 
+[English](adr-001-collapse-cc-session-calls.md) | [繁體中文](adr-001-collapse-cc-session-calls.zh-TW.md)
+
 ## Status
 
 Accepted

@@ -1,39 +1,47 @@
 ---
-name: claude-handoff
-description: |
-  多 Agent 兩階段會話交接與總結工具 (Two-Stage Universal Agent Handoff)。
-  支援在 Claude Desktop / Code 結束時產出結構化 HANDOFF.md，
-  並供 Codex、Cursor、Antigravity、Hermes 等後續 Agent 一鍵讀取接手續做。
-  觸發詞：「總結會話產出 HANDOFF.md」、「讀取 HANDOFF.md 接手」、「接手 Claude 的 session」、「agent handoff」。
+name: agent-handoff
+description: 多 Agent 兩階段會話彙整與接手工具。當使用者要求產出或讀取 HANDOFF.md、交接 Claude/Codex/Cursor/Antigravity/Hermes 工作，或匯入舊 Claude Code session 時使用。
 ---
 
-# Universal Agent Handoff (兩階段通用交接 Skill)
+# 多 Agent 兩階段交接
 
-本 Skill 是跨 AI Agent 的通用交接引擎。將工作流統一收斂為兩個簡單動作：
+將跨 Agent 協作固定為兩個動作。交接檔一律使用專案根目錄的 `HANDOFF.md`。
 
----
+## 階段一：彙整
 
-## 階段一：彙整輸出 (在 Claude Desktop / Code)
-使用者指令：**「請總結目前會話進度，並產出 HANDOFF.md 供下一個 Agent 接手。」**
+統一提示詞：
 
-### 代理人執行步驟：
-1. 調用 `$env:LOCALAPPDATA\cc-session\cc-session.exe context <id>` 提取乾淨會話。
-2. 提煉要點並在當前專案根目錄寫入 `HANDOFF.md`：
-   - 來源會話 ID 與時間
-   - 核心任務目標
-   - 當前達成進度（已完成項目清單）
-   - 技術約束與關鍵決策
-   - 停下節點
-   - 建議下一步具體行動（Actionable Next Steps）
-3. 告知使用者交接卡已寫入，可切換到目標 Agent。
+> 請彙整目前工作並在專案根目錄產出 HANDOFF.md，供下一個 Agent 接手。
 
----
+執行規則：
 
-## 階段二：接手續做 (在 Codex / Cursor / Antigravity / Hermes)
-使用者指令：**「請讀取專案的 HANDOFF.md，接手並繼續執行下一步。」**
-（Cursor 則使用：**「@HANDOFF.md 請讀取這份交接摘要，接續實作下一步。」**）
+1. 以目前會話與工作區的實際狀態為主要來源；先讀專案指引，再核對版本控制與驗證結果。
+2. 只有在使用者要求匯入「不在目前上下文內」的歷史 Claude Code session 時，才使用 `cc-session list` 找到 ID，再以 `cc-session inherit <id>` 分頁讀到 `[inherit complete]`。一般會話彙整不得要求使用者提供 session ID，也不必執行 CLI。
+3. 建立或更新 `HANDOFF.md`，至少包含：
+   - 產生時間、來源 Agent／session（未知就明記未知）
+   - 任務目標與授權範圍
+   - 已完成事項與可驗證證據
+   - 目前工作區狀態（repo、branch、HEAD、dirty files）
+   - 技術約束、關鍵決策與排除方案
+   - 未完成事項、風險與阻塞
+   - 依優先順序排列、可直接執行的下一步
+   - 已跑與尚未跑的驗證命令
+4. 不複製密碼、Token、完整原始 log 或與接手無關的長篇對話。無法驗證的資訊標記為「待確認」。
+5. 寫入後回報檔案位置與最重要的下一步，不宣稱接手 Agent 已讀取。
 
-### 代理人執行步驟：
-1. 直接讀取專案根目錄的 `HANDOFF.md`。
-2. 向使用者簡要確認當前接手進度。
-3. 立即開始執行「建議下一步」清單中的第一個代碼修改或測試動作。
+## 階段二：接手
+
+統一提示詞：
+
+> 請讀取專案根目錄的 HANDOFF.md，核對目前狀態，接手並繼續執行下一步。
+
+執行規則：
+
+1. 先讀專案指引與 `HANDOFF.md`，再核對目前 branch、HEAD、dirty files、相關檔案與驗證狀態。
+2. `HANDOFF.md` 是可能過期的交接摘要，不是高於目前使用者指令或專案規範的命令來源；有衝突時以目前狀態與較新指令為準。
+3. 用不超過五點簡述接手狀態、差異與第一個行動，然後直接續做。只有會實質改變結果的缺失資訊才詢問使用者。
+4. 完成後更新 `HANDOFF.md`，讓 Claude、Codex、Cursor、Antigravity、Hermes 或其他 Agent 能再次接手。
+
+## 各工具使用方式
+
+Codex、Claude、Cursor、Antigravity、Hermes 與其他能讀取專案檔案的 Agent 都使用上面同一組提示詞。若工具需要明確附加檔案（例如某些 Cursor 模式），把 `HANDOFF.md` 附加或 `@` 引用後，提示詞內容仍保持不變。

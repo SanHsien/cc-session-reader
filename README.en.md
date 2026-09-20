@@ -1,4 +1,4 @@
-# cc-session-reader (Windows & Multi-Agent Handoff Fork)
+# cc-session-reader (Windows Multi-Agent Handoff Fork)
 
 [![CI](https://github.com/SanHsien/cc-session-reader/actions/workflows/ci.yml/badge.svg)](https://github.com/SanHsien/cc-session-reader/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -6,102 +6,81 @@
 
 [繁體中文](README.md) | [English](README.en.md)
 
-**cc-session-reader** is a high-efficiency transcript extractor, static compressor, and cross-agent handoff tool tailored for Windows and multi-agent AI development workflows.
-It parses local Claude Code and Claude Desktop session files (`.jsonl`), achieving **80%–88%** token reduction via a fast Go binary by stripping heavy harness frames and raw tool outputs while fully preserving essential user/assistant reasoning.
-
----
-
-## Unified Two-Stage Handoff Workflow
-
-To eliminate confusion across different tools, cross-agent handoffs are standardized into two clear phases with uniform prompts:
+This is a Windows-first maintained fork of [`Mapleeeeeeeeeee/cc-session-reader`](https://github.com/Mapleeeeeeeeeee/cc-session-reader). It preserves the upstream Go parser for filtering Claude Code JSONL transcripts and importing historical sessions, and adds an `agent-handoff` Skill so Claude, Codex, Cursor, Antigravity, Hermes, and other agents can continue from the same `HANDOFF.md`.
 
 ```text
-      [Stage 1: Source (Claude)]
-       In Claude Desktop / Code prompt:
-       👉 "Please summarize the current session and generate HANDOFF.md for the next agent."
-                          │
-                          │ (cc-session statically compresses and outputs HANDOFF.md)
-                          ▼
-                  [Project Root: HANDOFF.md]
-                          │
-                          │ Zero token waste / Structured
-                          ▼
-      [Stage 2: Target (Codex / Cursor / Antigravity / Hermes)]
-       In target agent prompt:
-       👉 Codex / Antigravity : "Please read HANDOFF.md and continue with the next steps."
-       👉 Cursor               : "@HANDOFF.md Please read this summary and implement the next steps."
-       👉 Hermes / CLI agents  : "Read HANDOFF.md and continue with the next action items."
+Any source agent
+  │  Stage 1: summarize the current state
+  ▼
+HANDOFF.md in the project root
+  │  Stage 2: verify and take over
+  ▼
+Claude / Codex / Cursor / Antigravity / Hermes / other agents
 ```
 
----
+## Unified workflow
 
-## Standardized Two-Stage Prompt Reference
+Every agent uses the same two prompts. There are no agent-specific commands to remember.
 
-### Stage 1: Summarize & Export
+### Stage 1: summarize
 
-When you finish planning in **Claude Desktop / Claude Code**, or hit the **5-hour rate limit**, enter:
+> Please summarize the current work and create HANDOFF.md in the project root for the next agent.
 
-> **"Please summarize the current session and generate HANDOFF.md for the next agent."**
+The source agent records the objective, completed work, branch/HEAD, verification evidence, decisions, risks, and actionable next steps from the current conversation and workspace. A normal summary does not require a session ID or CLI command.
 
-#### Standard Handoff Card Format (`HANDOFF.md`):
-```markdown
-# Project Handoff Summary (HANDOFF.md)
-- **Source Session**: [Session ID & Timestamp]
-- **Core Mission Goal**: [One-sentence task objective]
-- **Completed Progress**:
-  - [x] [Completed architecture or code]
-  - [x] [Passed tests]
-- **Technical Constraints & Decisions**: [Decisions to avoid circular work]
-- **Handoff Trigger**: [e.g. 5h Rate Limit / Plan ready for execution]
-- **Actionable Next Steps**:
-  1. [Specific files to modify or verification commands]
-```
+Use `cc-session list` and `cc-session inherit <id>` only when importing a historical Claude Code session that is not already in the current context. The agent then updates `HANDOFF.md` from the filtered history.
 
----
+### Stage 2: take over
 
-### Stage 2: Takeover & Execute
+> Please read HANDOFF.md in the project root, verify the current state, take over, and continue with the next step.
 
-Switch to the target agent and paste the single unified prompt into its chat box without opening a terminal:
+The target agent reads project rules first and verifies the branch, HEAD, dirty files, and test status. If `HANDOFF.md` is stale, the current workspace and newer user instructions take precedence. In interfaces that require explicit file attachment, attach or mention `@HANDOFF.md` without changing the prompt.
 
-| Target Agent | Standardized Prompt | Action Taken |
+See [Two-Stage Handoff Workflow](docs/HANDOFF_WORKFLOW.en.md) for the full specification.
+
+## Skill responsibilities
+
+| Skill | Purpose | When to use it |
 |---|---|---|
-| **Codex Desktop** | **"Please read HANDOFF.md and continue with the next steps."** | Ingests clean context, writes code, and runs local Quality Gates. |
-| **Cursor** | **"@HANDOFF.md Please read this summary and implement the next steps."** | Cursor reads the refined summary and performs inline edits in the IDE. |
-| **Antigravity** | **"Please read HANDOFF.md and continue with the next steps."** | Maximizes high-throughput execution with models like Gemini 3.8 Flash. |
-| **Hermes / CLI** | **"Read HANDOFF.md and continue with the next action items."** | CLI agents autonomously execute remaining tasks. |
-| **Claude (Return)**| **"Please read HANDOFF.md and review previous decisions."** | Resumes after quota reset with zero context bloat. |
+| `agent-handoff` | Create, verify, and continue from `HANDOFF.md` | Routine handoffs between any source and target agents |
+| `cc-session` | Read and compress historical Claude Code JSONL | Importing an old session that is outside the current context |
 
----
+`agent-handoff` is not tied to a specific model or harness. It requires the receiving agent to verify the real workspace before trusting a potentially stale summary.
 
-## Quick Installation (Windows PowerShell)
-
-Run the following one-liner in PowerShell:
+## Quick installation (Windows PowerShell)
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/SanHsien/cc-session-reader/main/install.ps1 | iex"
 ```
 
----
+The installer:
 
-## CLI Reference
+1. Downloads the Windows `cc-session.exe` from this fork's latest release to `$env:LOCALAPPDATA\cc-session\`.
+2. Installs the fork's `cc-session` and `agent-handoff` Skills for Claude Code.
+3. Installs the fork's Codex Skill at `~/.codex/skills/agent-handoff`.
+4. Creates `$env:LOCALAPPDATA\cc-session\agent-handoff-claude.zip`.
+
+Claude Desktop custom Skills require a manual account-level upload at **Customize > Skills > + Create skill > Upload a skill**. A local script cannot perform that upload. See [Claude's official instructions](https://support.claude.com/en/articles/12512180-use-skills-in-claude).
+
+## CLI reference (advanced)
 
 | Command | Description | Example |
 |---|---|---|
-| `list` | List recent sessions | `cc-session list -n 10` |
-| `context` | Emit compact context format | `cc-session context <id>` |
-| `inherit` | Paged session inheritance | `cc-session inherit <id>` |
-| `read` | Full conversation with one-line tool summaries | `cc-session read <id>` |
-| `stats` | Character and token distribution stats | `cc-session stats <id>` |
+| `list` | List recent Claude Code sessions | `cc-session list -n 10` |
+| `inherit` | Import the complete compressed history in pages | `cc-session inherit <id>` |
+| `context` | Print compact context with metadata | `cc-session context <id>` |
+| `read` | Print the conversation and tool summaries | `cc-session read <id>` |
+| `expand` | Expand a specific tool call | `cc-session expand <id> <tool-id>` |
+| `stats` | Show character and token distribution | `cc-session stats <id>` |
 
----
-
-## Governance & Verification
+## Development and verification
 
 ```powershell
-# Run the canonical Windows verification gate
-powershell -NoProfile -File tools/dev_check.ps1
+pwsh -NoProfile -File tools/dev_check.ps1
 ```
 
-## License & Attribution
+This fork maintains Windows amd64/arm64 only. Public upstream documentation has Traditional Chinese and English mirrors; fork-local governance documents may remain Traditional Chinese only.
 
-Licensed under Apache License, Version 2.0. Original work Copyright 2026 Maple！. See [NOTICE.md](NOTICE.md) for details.
+## License and provenance
+
+Licensed under the Apache License 2.0. See [NOTICE.md](NOTICE.md), [FORK.md](FORK.md), and [LICENSE](LICENSE) for upstream provenance and fork details.

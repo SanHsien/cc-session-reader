@@ -1,5 +1,7 @@
 # ADR-009：訊息來源先看 `promptSource` 欄位，字串比對降為備援
 
+[繁體中文](adr-009-prompt-source-field.md) | [English](adr-009-prompt-source-field.en.md)
+
 **狀態**：已實作（2026-09-02），決定 4 於同日修正排除 `sdk`（見該節）。
 字串分類認不出形狀的 `sdk` 來源標 `user (sdk):`；context 格式的短前綴是 `S:`（`U:`/`H:` 之外新增一個）。
 

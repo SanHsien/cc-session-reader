@@ -1,5 +1,7 @@
 # ADR-004: Failed Tool Result Retention Strategy
 
+[English](adr-004-failure-retention-strategy.md) | [繁體中文](adr-004-failure-retention-strategy.zh-TW.md)
+
 ## Status
 
 Proposed — implementation deliberately deferred. Current behavior (ADR-003: single meaningful error line, ~200 runes) stays in place. This document records the investigation, fleet data, and adversarial review so a future revision starts from evidence instead of re-deriving it.

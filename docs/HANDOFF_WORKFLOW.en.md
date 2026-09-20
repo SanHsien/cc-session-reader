@@ -1,55 +1,67 @@
-# Universal Two-Stage Multi-Agent Handoff Workflow
+# Standard Two-Stage Multi-Agent Handoff Workflow
 
 [繁體中文](HANDOFF_WORKFLOW.md) | [English](HANDOFF_WORKFLOW.en.md)
 
-To prevent confusion and eliminate complex command-line arguments, cross-agent workflows are standardized into two clear steps: **Stage 1: Summarize & Export** and **Stage 2: Takeover & Execute**.
+This workflow requires only two prompts. Claude, Codex, Cursor, Antigravity, Hermes, or another agent can be either the source or the receiver.
 
----
+```text
+Source agent --summarize--> HANDOFF.md --verify--> Target agent --continue--> updated HANDOFF.md
+```
 
-## Stage 1: Summarize & Export
+## Stage 1: summarize
 
-When you complete planning in **Claude Desktop** or **Claude Code**, or reach the **5-hour rate limit**, prompt:
+Unified prompt:
 
-> **"Please summarize the current session and generate HANDOFF.md for the next agent."**
+> Please summarize the current work and create HANDOFF.md in the project root for the next agent.
 
-### Agent Automated Workflow:
-1. Calls `cc-session` to extract clean context without raw JSON/tool noise (80%+ reduction).
-2. Writes structured handoff card `HANDOFF.md` to the project root:
-   ```markdown
-   # Project Handoff Summary (HANDOFF.md)
-   - **Source Session**: [Session ID & Timestamp]
-   - **Core Mission Goal**: [One-sentence task goal]
-   - **Completed Progress**:
-     - [x] [Completed architecture or code]
-     - [x] [Passed tests]
-   - **Technical Constraints & Decisions**: [Decisions to avoid circular work]
-   - **Handoff Trigger**: [e.g. 5h Rate Limit / Plan ready for execution]
-   - **Actionable Next Steps**:
-     1. [Specific files to modify or verification commands]
-   ```
+The source agent should:
 
----
+1. Read project rules and verify the current branch, HEAD, dirty files, and test status.
+2. Produce `HANDOFF.md` from the current conversation and workspace rather than copying a chat summary alone.
+3. Record the objective, authorized scope, completed work and evidence, decisions, remaining work, risks, next steps, and verification commands.
+4. Mark unknown or irreproducible facts as “needs verification.” Never include passwords, tokens, or complete raw logs.
 
-## Stage 2: Takeover & Execute
+Recommended format:
 
-Switch to the downstream agent (**Codex Desktop, Cursor, Antigravity, Hermes, or a fresh Claude session**) without opening a terminal, and paste the unified prompt:
+```markdown
+# HANDOFF
 
-### 1. Codex Desktop / Antigravity (opencodex)
-> **"Please read HANDOFF.md and continue with the next steps."**
-*(Codex loads the structured handoff, generates code, and runs local Quality Gates)*
+- Generated at:
+- Source agent/session:
+- Repository/branch/HEAD:
+- Workspace state:
 
-### 2. Cursor (Composer / Chat)
-> **"@HANDOFF.md Please read this summary and implement the next steps."**
-*(Cursor reads the refined summary and performs inline edits in the IDE)*
+## Objective and scope
+## Completed work and evidence
+## Decisions and constraints
+## Remaining work, risks, and blockers
+## Next steps in priority order
+## Verification run and still pending
+```
 
-### 3. Hermes / CLI Agents
-> **"Read HANDOFF.md and continue with the next action items."**
+### Importing a historical Claude Code session
 
-### 4. Claude Desktop / Code (Return after quota reset)
-> **"Please read HANDOFF.md and review previous decisions."**
+Use the parser only when the historical session is outside the current context:
 
----
+1. Run `cc-session list` to identify the session.
+2. Repeat `cc-session inherit <id>` until `[inherit complete]` appears.
+3. Verify the current workspace, then write relevant information to `HANDOFF.md`.
 
-## Core Benefits
-- **Zero Mental Overhead**: Always ask the source agent to generate `HANDOFF.md`, and ask the target agent to read `HANDOFF.md`.
-- **Zero Token Waste**: The handoff artifact is statically filtered and curated, eliminating hundreds of thousands of tokens of transcript bloat.
+`cc-session` reads local Claude Code JSONL files. It is not a universal session database for Codex, Cursor, Antigravity, or Hermes. Other source agents summarize from their current context.
+
+## Stage 2: take over
+
+Unified prompt:
+
+> Please read HANDOFF.md in the project root, verify the current state, take over, and continue with the next step.
+
+The receiving agent should:
+
+1. Read project rules before `HANDOFF.md`.
+2. Verify the branch, HEAD, dirty files, relevant files, and test state. The current workspace and newer instructions override stale handoff content.
+3. Briefly report the takeover state and any differences, then execute the first applicable next step.
+4. Update `HANDOFF.md` when pausing or completing work so another agent can take over again.
+
+## Interface differences
+
+Keep the prompt unchanged. If an interface requires explicit file selection, such as some Cursor modes, attach or mention `@HANDOFF.md`. That is an interface detail, not a separate workflow.

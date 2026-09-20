@@ -1,4 +1,4 @@
-# cc-session-reader (Windows & 多 Agent 會話交接 Fork)
+# cc-session-reader（Windows 多 Agent 會話交接 Fork）
 
 [![CI](https://github.com/SanHsien/cc-session-reader/actions/workflows/ci.yml/badge.svg)](https://github.com/SanHsien/cc-session-reader/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -6,109 +6,81 @@
 
 [繁體中文](README.md) | [English](README.en.md)
 
-**cc-session-reader** 是一個專為 Windows 與多 AI Agent 協同開發設計的會話無損壓縮與通用交接工具。
-純靜態解析 Claude Code 與 Claude Desktop 的本機會話記錄 (`.jsonl`)，以極速 Go 引擎將動輒 300K+ 的 raw JSON 壓低 **80%–88%**，過濾大量 harness 框架與工具原始 I/O 雜訊，完整保留使用者與助理的核心推理與程式碼決策。
-
----
-
-## 統一操作流程：兩階段交接法 (不用記複雜指令)
-
-為了讓使用者在跨工具協作時完全不混淆，本專案將跨 Agent 的切換統一為**「階段一：彙整輸出」**與**「階段二：接手續做」**兩組標準提示詞 (Prompt)。
+這是 [`Mapleeeeeeeeeee/cc-session-reader`](https://github.com/Mapleeeeeeeeeee/cc-session-reader) 的 Windows-first 維護 Fork。它保留原專案以 Go 靜態解析 Claude Code JSONL、壓縮工具雜訊與分頁匯入歷史 session 的能力，並新增 `agent-handoff` Skill，讓 Claude、Codex、Cursor、Antigravity、Hermes 等 Agent 以同一份 `HANDOFF.md` 接續工作。
 
 ```text
-      【階段一：來源端 (Claude)】
-       在對話框輸入一句：
-       👉「請總結目前會話進度，並產出 HANDOFF.md 供下一個 Agent 接手。」
-                          │
-                          │ (自動調用 cc-session 清洗並生成結構化交接卡)
-                          ▼
-                  [專案目錄: HANDOFF.md]
-                          │
-                          │ 零 Token 浪費直接載入
-                          ▼
-      【階段二：接手端 (Codex / Cursor / Antigravity / Hermes)】
-       在目標 Agent 對話框輸入對應的一句：
-       👉 Codex / Antigravity :「請讀取專案的 HANDOFF.md，接手並繼續執行下一步。」
-       👉 Cursor               :「@HANDOFF.md 請讀取這份交接摘要，接續實作下一步。」
-       👉 Hermes / 其他 CLI    :「Read HANDOFF.md and continue with the next action items.」
+任一來源 Agent
+  │  階段一：彙整目前狀態
+  ▼
+專案根目錄 HANDOFF.md
+  │  階段二：目標 Agent 核對後接手
+  ▼
+Claude / Codex / Cursor / Antigravity / Hermes / 其他 Agent
 ```
 
----
+## 統一工作流
 
-## 兩階段標準 Prompt 提示詞指引
+所有 Agent 都使用同一組提示詞，不需要記憶各工具專用指令。
 
-### 階段一：彙整輸出階段 (Summarize & Export)
+### 階段一：彙整
 
-當你在 **Claude Desktop** 或 **Claude Code** 規劃完畢、或遇到 **5 小時用量限制** 時，在對話框輸入：
+> 請彙整目前工作並在專案根目錄產出 HANDOFF.md，供下一個 Agent 接手。
 
-> **「請總結目前會話進度，並產出 HANDOFF.md 供下一個 Agent 接手。」**
+來源 Agent 會根據目前會話及工作區狀態，記錄目標、完成事項、branch/HEAD、驗證結果、關鍵決策、風險與下一步。一般彙整不需要 session ID，也不必執行 CLI。
 
-#### 產出的標準交接卡 (`HANDOFF.md`) 範本：
-```markdown
-# 專案交接摘要 (HANDOFF.md)
-- **來源會話**: [Session ID 與 時間]
-- **核心任務目標**: [一句話說明本任務要做什麼]
-- **已達成進度**:
-  - [x] [已完成之架構或代碼]
-  - [x] [已通過之測試]
-- **技術約束與關鍵決策**: [避免下個 Agent 走回頭路]
-- **停下節點**: [如 Rate Limit 暫停 / 規格定案待實作]
-- **接手下一步 (Actionable Next Steps)**:
-  1. [具體要修改的檔案或實作步驟]
-```
+只有要匯入「不在目前上下文內」的舊 Claude Code session 時，才讓 Agent 使用 `cc-session list` 與 `cc-session inherit <id>` 讀取經過濾的歷史內容，再更新 `HANDOFF.md`。
 
----
+### 階段二：接手
 
-### 階段二：接手續做階段 (Takeover & Execute)
+> 請讀取專案根目錄的 HANDOFF.md，核對目前狀態，接手並繼續執行下一步。
 
-切換至接手端 Agent 後，完全不需開啟終端機，直接在對話框發送該 Agent 專屬的標準 Prompt：
+接手 Agent 先讀專案規範，再核對 branch、HEAD、dirty files 與驗證狀態；`HANDOFF.md` 若已過期，以目前工作區與較新的使用者指令為準。Cursor 等需要明確附檔的介面，可先附加或 `@HANDOFF.md`，提示詞本身不變。
 
-| 接手 Agent | 統一標準操作 Prompt | 運作行為 |
+完整說明：[兩階段交接工作流](docs/HANDOFF_WORKFLOW.md)
+
+## 兩個 Skills 的分工
+
+| Skill | 用途 | 適用情境 |
 |---|---|---|
-| **Codex 桌面版** | **「請讀取專案的 HANDOFF.md，接手並繼續執行下一步。」** | 讀取結構化交接卡，無縫寫 Code 並跑本地 Quality Gates。 |
-| **Cursor** | **「@HANDOFF.md 請讀取這份交接摘要，接續實作下一步。」** | Cursor 透過 Composer/Chat 行內精準比對與修改代碼。 |
-| **Antigravity** | **「請讀取專案的 HANDOFF.md，接手並繼續執行下一步。」** | 充分發揮 Gemini 3.8 Flash 等模型的高吞吐實作能力。 |
-| **Hermes / CLI** | **「Read HANDOFF.md and continue with the next action items.」** | 終端 Agent 直接解析清單並執行批次自動化任務。 |
-| **Claude (回流)** | **「請讀取 HANDOFF.md，回顧先前的決策與進度。」** | 額度重置後新開會話，零負擔重新同步脈絡。 |
+| `agent-handoff` | 產出、核對與接續 `HANDOFF.md` | 所有來源與目標 Agent 的日常交接 |
+| `cc-session` | 讀取與壓縮歷史 Claude Code JSONL | 舊 session 不在目前上下文，需要匯入時 |
 
----
+`agent-handoff` 不綁定特定模型或 harness。它會要求 Agent 先核對實際工作區，避免把過期交接摘要當成目前事實。
 
-## 快速安裝 (Windows PowerShell)
-
-在 PowerShell 中執行以下單行指令即可安裝工具與 Skills：
+## 快速安裝（Windows PowerShell）
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/SanHsien/cc-session-reader/main/install.ps1 | iex"
 ```
 
-安裝程式會自動完成：
-1. 下載最新版 `cc-session.exe` 到 `$env:LOCALAPPDATA\cc-session\`。
-2. 自動為 **Codex** 與 **Claude** 配置好兩階段交接 Skill。
+安裝程式會：
 
----
+1. 從本 Fork 的最新 release 下載 Windows `cc-session.exe` 至 `$env:LOCALAPPDATA\cc-session\`。
+2. 從本 Fork 安裝 Claude Code 的 `cc-session` 與 `agent-handoff` Skills。
+3. 從本 Fork 安裝 Codex 的 `agent-handoff` Skill 至 `~/.codex/skills/agent-handoff`。
+4. 產生 `$env:LOCALAPPDATA\cc-session\agent-handoff-claude.zip`。
 
-## CLI 子命令速查 (進階操作)
+Claude Desktop 的自訂 Skill 必須由使用者在 **Customize > Skills > + Create skill > Upload a skill** 上傳 ZIP；本機腳本不能替代帳號層的上傳。詳見 [Claude 官方說明](https://support.claude.com/en/articles/12512180-use-skills-in-claude)。
+
+## CLI 速查（進階）
 
 | 命令 | 說明 | 範例 |
 |---|---|---|
-| `list` | 列出最近的 Claude 對話會話 | `cc-session list -n 10` |
-| `context` | 輸出精簡注入格式（帶 metadata header） | `cc-session context <id>` |
-| `inherit` | 分頁繼承長對話至 context（防爆 token） | `cc-session inherit <id>` |
-| `read` | 完整對話檢視 + tool call 一行摘要 | `cc-session read <id> -max-lines 200` |
-| `expand` | 展開特定 tool call 的完整原始內容 | `cc-session expand <id> <tool-id>` |
-| `stats` | 統計字元與 Token 節省效益（實測節省 80%+） | `cc-session stats <id>` |
+| `list` | 列出最近的 Claude Code sessions | `cc-session list -n 10` |
+| `inherit` | 分頁匯入完整壓縮內容 | `cc-session inherit <id>` |
+| `context` | 輸出精簡格式與 metadata | `cc-session context <id>` |
+| `read` | 顯示對話與工具摘要 | `cc-session read <id>` |
+| `expand` | 展開指定工具呼叫 | `cc-session expand <id> <tool-id>` |
+| `stats` | 統計字元與 Token 分布 | `cc-session stats <id>` |
 
----
-
-## 開發與治理
-
-本 Fork 遵守嚴格的 Windows 開發與質量檢驗標準：
+## 開發與驗證
 
 ```powershell
-# 執行 Windows 一鍵檢查 Gate
-powershell -NoProfile -File tools/dev_check.ps1
+pwsh -NoProfile -File tools/dev_check.ps1
 ```
 
-## 版權與授權
+本 Fork 只維護 Windows amd64/arm64。公開上游文件提供繁體中文與英文鏡像；Fork 內部治理文件可只使用繁體中文。
 
-本專案基於 Apache 2.0 授權條款開源，原始作品版權歸 Maple！ 所有，詳細聲明請見 [NOTICE.md](NOTICE.md) 與 [LICENSE](LICENSE)。
+## 授權與來源
+
+本專案依 Apache License 2.0 授權。原始作品與上游來源詳見 [NOTICE.md](NOTICE.md)、[FORK.md](FORK.md) 與 [LICENSE](LICENSE)。

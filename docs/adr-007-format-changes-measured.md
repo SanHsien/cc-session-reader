@@ -1,5 +1,7 @@
 # ADR-007：五項輸出格式改動，量過才決定
 
+[繁體中文](adr-007-format-changes-measured.md) | [English](adr-007-format-changes-measured.en.md)
+
 **狀態**：已實作。量測程式在 `experiment/format-probes` 分支（不合併）。
 
 實作後對同五個 session 重新量整份 read 輸出：656,370 → 658,278 token（**+0.3%**）。

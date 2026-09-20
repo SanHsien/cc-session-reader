@@ -1,5 +1,7 @@
 # ADR-003: Tool Result Status Determination & Error/Diff Summaries
 
+[English](adr-003-tool-result-status-and-summaries.md) | [繁體中文](adr-003-tool-result-status-and-summaries.zh-TW.md)
+
 ## Status
 
 Accepted

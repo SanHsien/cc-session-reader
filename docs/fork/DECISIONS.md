@@ -10,4 +10,4 @@
  ## 本 Fork 專屬架構決策 (ADR-Fork-001)
  
  - **移除非 Windows 跨平台構建**：刪除 `install.sh`，`.goreleaser.yaml` 與 CI 只保留 Windows。
- - **Codex 桌面版 Skill**：新增 `skills/claude-handoff`，提供自然語言免命令列會話接手功能。
+- **通用 Agent Handoff Skill**：以唯一的 `skills/agent-handoff` 實作兩階段 `HANDOFF.md` 交接；一般彙整不依賴 CLI，只有讀取歷史 Claude Code session 時使用 `cc-session`。

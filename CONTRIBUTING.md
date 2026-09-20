@@ -17,5 +17,5 @@
      powershell -NoProfile -File tools/dev_check.ps1
      ```
    - 確保二進位檔可執行、Skill 結構完整且上游更新已審核（顯示 `WINDOWS DEV CHECK GREEN`）。
-4. **雙語文件同步**：
-   - 繁體中文為主要文檔，任何文檔修改須同步更新對應的英文鏡像 (`.en.md`)。
+4. **雙語公開文件同步**：
+   - 上游公開 Markdown 的繁體中文與英文版本必須同步更新；Fork 內部治理文件可只使用繁體中文。

@@ -1,5 +1,7 @@
 # ADR-002: Tool Result Compression Optimization & Project-Relative Paths
 
+[English](adr-002-tool-compression-optimization.md) | [繁體中文](adr-002-tool-compression-optimization.zh-TW.md)
+
 ## Status
 
 Proposed

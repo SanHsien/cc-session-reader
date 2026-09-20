@@ -1,5 +1,7 @@
 # Benchmark: cc-session Cost Savings
 
+[English](benchmark.md) | [繁體中文](benchmark.zh-TW.md)
+
 Compares the input token cost of two scenarios after the Claude API prompt cache expires (5-minute TTL):
 
 - **Scenario A**: Stay in the original session. The entire context is re-cached on the first API call.

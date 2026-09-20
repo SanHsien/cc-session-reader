@@ -1,55 +1,67 @@
-# 多 Agent 兩階段標準交接工作流 (Two-Stage Universal Handoff)
+# 多 Agent 兩階段標準交接工作流
 
 [繁體中文](HANDOFF_WORKFLOW.md) | [English](HANDOFF_WORKFLOW.en.md)
 
-為了讓使用者完全不混淆、不需要記憶複雜指令，本專案將跨 Agent 的協同開發簡化為**「階段一：彙整輸出」**與**「階段二：接手續做」**兩個標準動作。
+本工作流只要求使用者記住兩句提示詞。來源可以是 Claude、Codex、Cursor、Antigravity、Hermes 或其他 Agent；目標端同樣不限工具。
 
----
+```text
+來源 Agent ──彙整──> HANDOFF.md ──核對──> 接手 Agent ──續做──> 更新 HANDOFF.md
+```
 
-## 階段一：彙整輸出 (Summarize & Export)
+## 階段一：彙整
 
-當你在 **Claude Desktop** 或 **Claude Code** 規劃完畢、或遇到 **5 小時用量限制** 時，在對話框輸入這句標準 Prompt：
+統一提示詞：
 
-> **「請總結目前會話進度，並產出 HANDOFF.md 供下一個 Agent 接手。」**
+> 請彙整目前工作並在專案根目錄產出 HANDOFF.md，供下一個 Agent 接手。
 
-### Agent 自動執行的動作：
-1. 自動調用 `cc-session` 提取乾淨的上下文（過濾 80%+ 雜訊）。
-2. 在專案根目錄生成標準交接卡 `HANDOFF.md`：
-   ```markdown
-   # 專案交接摘要 (HANDOFF.md)
-   - **來源會話**: [Session ID 與 時間]
-   - **核心任務目標**: [一句話說明本任務要做什麼]
-   - **已達成進度**:
-     - [x] [已完成之架構或代碼]
-     - [x] [已通過之測試]
-   - **技術約束與關鍵決策**: [避免下個 Agent 走回頭路]
-   - **停下節點**: [如 Rate Limit 暫停 / 規格定案待實作]
-   - **接手下一步 (Actionable Next Steps)**:
-     1. [具體要修改的檔案或實作步驟]
-   ```
+來源 Agent 應：
 
----
+1. 讀取專案規範，核對目前 branch、HEAD、dirty files 與測試狀態。
+2. 根據目前會話與工作區產出 `HANDOFF.md`，不得只複製聊天摘要。
+3. 記錄目標、授權範圍、完成事項與證據、關鍵決策、未完成事項、風險、下一步及驗證命令。
+4. 將未知或無法重現的資訊標成「待確認」；不得寫入密碼、Token 或完整原始 log。
 
-## 階段二：接手續做 (Takeover & Execute)
+建議格式：
 
-切換到後續的任何 Agent（**Codex 桌面版、Cursor、Antigravity、Hermes、或新開的 Claude**），不需要開命令列，直接在該 Agent 的對話框貼上對應的一句標準 Prompt：
+```markdown
+# HANDOFF
 
-### 1. Codex 桌面版 / Antigravity (opencodex)
-> **「請讀取專案的 HANDOFF.md，接手並繼續執行下一步。」**
-*(Codex 會直接讀取剛剛生成的 HANDOFF.md，接續寫代碼並跑本地 Quality Gates)*
+- 產生時間：
+- 來源 Agent／session：
+- Repo／branch／HEAD：
+- 工作區狀態：
 
-### 2. Cursor (Composer / Chat)
-> **「@HANDOFF.md 請讀取這份交接摘要，接續實作下一步。」**
-*(Cursor 零浪費讀取精華上下文，直接在 IDE 進行行內代碼修改)*
+## 目標與範圍
+## 已完成與證據
+## 關鍵決策與限制
+## 未完成、風險與阻塞
+## 下一步（依優先順序）
+## 已跑／尚未跑的驗證
+```
 
-### 3. Hermes 或其他終端 Agent
-> **「Read HANDOFF.md and continue with the next action items.」**
+### 匯入舊 Claude Code session
 
-### 4. 額度重置後的 Claude Desktop / Code (回流)
-> **「請讀取 HANDOFF.md，回顧先前的決策與進度。」**
+只有歷史 session 不在目前上下文時才使用解析器：
 
----
+1. 執行 `cc-session list` 找 session ID。
+2. 重複執行 `cc-session inherit <id>`，直到看到 `[inherit complete]`。
+3. 核對目前工作區，再將有效資訊寫入 `HANDOFF.md`。
 
-## 核心效益
-- **使用者大腦零負擔**：不管是交接給誰，在來源端只要說「產出 HANDOFF.md」，在目標端只要說「讀取 HANDOFF.md 繼續下一步」。
-- **零 Token 浪費**：交接卡已經過靜態壓縮與結構化整理，後續 Agent 絕不重複浪費額度讀取原始數十萬 Token 的對話雜訊。
+`cc-session` 只讀 Claude Code 本機 JSONL；它不是 Codex、Cursor、Antigravity 或 Hermes 的通用 session 資料庫。其他 Agent 直接依目前上下文產出交接檔。
+
+## 階段二：接手
+
+統一提示詞：
+
+> 請讀取專案根目錄的 HANDOFF.md，核對目前狀態，接手並繼續執行下一步。
+
+接手 Agent 應：
+
+1. 先讀專案規範，再讀 `HANDOFF.md`。
+2. 核對 branch、HEAD、dirty files、關鍵檔案與驗證狀態；交接內容與現況不同時，以現況及較新指令為準。
+3. 簡要回報接手狀態與差異，立即執行第一個仍適用的下一步。
+4. 工作告一段落時更新 `HANDOFF.md`，形成可重複的交接循環。
+
+## 工具差異
+
+提示詞保持一致。若介面要求明確選檔（例如部分 Cursor 模式），附加或 `@HANDOFF.md` 即可；這是介面操作差異，不需要另背一套交接 Prompt。
