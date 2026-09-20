@@ -4,10 +4,10 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20arm64-blue.svg)](#)
 
-[~AÔN-e](README.md) | [English](README.en.md)
+[繁體中文](README.md) | [English](README.en.md)
 
 **cc-session-reader** is a high-efficiency transcript extractor, static compressor, and cross-agent handoff tool tailored for Windows and multi-agent AI development workflows.
-It parses local Claude Code and Claude Desktop session files (`.jsonl`), achieving **80% 88%** token reduction via a fast Go binary by stripping heavy harness frames and raw tool outputs while fully preserving essential user/assistant reasoning.
+It parses local Claude Code and Claude Desktop session files (`.jsonl`), achieving **80%–88%** token reduction via a fast Go binary by stripping heavy harness frames and raw tool outputs while fully preserving essential user/assistant reasoning.
 
 ---
 
@@ -18,19 +18,19 @@ To eliminate confusion across different tools, cross-agent handoffs are standard
 ```text
       [Stage 1: Source (Claude)]
        In Claude Desktop / Code prompt:
-       Ø=ÜI "Please summarize the current session and generate HANDOFF.md for the next agent."
-                          %
-                          % (cc-session statically compresses and outputs HANDOFF.md)
-                          %¼
+       👉 "Please summarize the current session and generate HANDOFF.md for the next agent."
+                          │
+                          │ (cc-session statically compresses and outputs HANDOFF.md)
+                          ▼
                   [Project Root: HANDOFF.md]
-                          %
-                          % Zero token waste / Structured
-                          %¼
+                          │
+                          │ Zero token waste / Structured
+                          ▼
       [Stage 2: Target (Codex / Cursor / Antigravity / Hermes)]
        In target agent prompt:
-       Ø=ÜI Codex / Antigravity : "Please read HANDOFF.md and continue with the next steps."
-       Ø=ÜI Cursor               : "@HANDOFF.md Please read this summary and implement the next steps."
-       Ø=ÜI Hermes / CLI agents  : "Read HANDOFF.md and continue with the next action items."
+       👉 Codex / Antigravity : "Please read HANDOFF.md and continue with the next steps."
+       👉 Cursor               : "@HANDOFF.md Please read this summary and implement the next steps."
+       👉 Hermes / CLI agents  : "Read HANDOFF.md and continue with the next action items."
 ```
 
 ---
@@ -104,4 +104,4 @@ powershell -NoProfile -File tools/dev_check.ps1
 
 ## License & Attribution
 
-Licensed under Apache License, Version 2.0. Original work Copyright 2026 Mapleÿ. See [NOTICE.md](NOTICE.md) for details.
+Licensed under Apache License, Version 2.0. Original work Copyright 2026 Maple！. See [NOTICE.md](NOTICE.md) for details.
