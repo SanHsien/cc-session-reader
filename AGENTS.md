@@ -12,4 +12,10 @@
    - 只有匯入不在目前上下文的舊 Claude Code session 時，才由 Agent 調用已編譯的 `cc-session` 靜態解析工具。
 3. **無損壓縮與 Token 防爆**：
    - 提取對話精華與關鍵 tool log，靜態過濾 80%+ harness 雜訊，防止上下文過載。
+4. **語言標準**：
+   - 繁體中文為主要公開文檔（`README.md`），上游公開 Markdown 保留繁體中文與英文鏡像；Fork 內部治理文件可只使用繁體中文。
+5. **Windows-first**：
+   - 所有腳本採用 PowerShell（`.ps1`），僅維護 Windows amd64/arm64 構建。
+6. **本地驗證**：
+   - 提交前必須執行 `powershell -NoProfile -File tools/dev_check.ps1` 確認綠燈。
 
