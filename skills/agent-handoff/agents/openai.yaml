@@ -1,0 +1,7 @@
+interface:
+  display_name: "多 Agent 會話交接"
+  short_description: "彙整 HANDOFF.md 並讓不同 Agent 核對狀態後接手"
+  default_prompt: "使用 $agent-handoff 彙整或接手目前專案工作。"
+
+policy:
+  allow_implicit_invocation: true

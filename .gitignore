@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.DS_Store
+bin/
+/sessions
+coverage.out
+dist/
+/cc-session
+.claude/
+/upstream-review-report.md
