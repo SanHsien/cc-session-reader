@@ -1,0 +1,1822 @@
+package main
+
+import (
+	"bytes"
+	"flag"
+	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Mapleeeeeeeeeee/cc-session-reader/internal/analyzer"
+	"github.com/Mapleeeeeeeeeee/cc-session-reader/internal/claudecodec"
+	"github.com/Mapleeeeeeeeeee/cc-session-reader/internal/config"
+	"github.com/Mapleeeeeeeeeee/cc-session-reader/internal/parser"
+	"github.com/Mapleeeeeeeeeee/cc-session-reader/internal/session"
+	"github.com/Mapleeeeeeeeeee/cc-session-reader/internal/tracker"
+)
+
+// testReader is the concrete reader used by all tests.
+var testReader = claudecodec.Codec{}
+
+func TestSampleCount(t *testing.T) {
+	tests := []struct {
+		name      string
+		requested int
+		total     int
+		want      int
+	}{
+		{
+			name:      "negative request shows none",
+			requested: -1,
+			total:     3,
+			want:      0,
+		},
+		{
+			name:      "request larger than total is capped",
+			requested: 10,
+			total:     3,
+			want:      3,
+		},
+		{
+			name:      "request within total is unchanged",
+			requested: 2,
+			total:     3,
+			want:      2,
+		},
+		{
+			name:      "zero request shows none",
+			requested: 0,
+			total:     3,
+			want:      0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sampleCount(tt.requested, tt.total)
+			if got != tt.want {
+				t.Fatalf("sampleCount(%d, %d) = %d, want %d", tt.requested, tt.total, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReorderArgs_DoesNotConsumeBooleanFlagPositionals(t *testing.T) {
+	tests := []struct {
+		name string
+		flag string
+	}{
+		{name: "read verbose agents long", flag: "--verbose-agents"},
+		{name: "read verbose agents short", flag: "-verbose-agents"},
+		{name: "read verbose bash long", flag: "--verbose-bash"},
+		{name: "read verbose bash short", flag: "-verbose-bash"},
+		{name: "stats no tokens long", flag: "--no-tokens"},
+		{name: "stats no tokens short", flag: "-no-tokens"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := reorderArgs([]string{tt.flag, "12345678"})
+			want := []string{tt.flag, "12345678"}
+			if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+				t.Fatalf("reorderArgs() = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
+func TestReorderBoolFlags_CoversSupportedBooleanFlags(t *testing.T) {
+	want := []string{"no-tokens", "verbose-agents", "verbose-bash", "verbose-thinking", "verbose-commands", "reset"}
+	for _, flag := range want {
+		if !reorderBoolFlags[flag] {
+			t.Fatalf("reorderBoolFlags missing %s", flag)
+		}
+	}
+	if len(reorderBoolFlags) != len(want) {
+		t.Fatalf("reorderBoolFlags has %d entries, want %d", len(reorderBoolFlags), len(want))
+	}
+}
+
+func TestFormatNumber(t *testing.T) {
+	tests := []struct {
+		input int
+		want  string
+	}{
+		{input: 0, want: "0"},
+		{input: 12, want: "12"},
+		{input: 999, want: "999"},
+		{input: 1000, want: "1,000"},
+		{input: 1234567, want: "1,234,567"},
+		{input: -1234567, want: "-1,234,567"},
+	}
+
+	for _, tt := range tests {
+		if got := analyzer.FormatNumber(tt.input); got != tt.want {
+			t.Fatalf("FormatNumber(%d) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+// Regression: the old FormatNumber negated negatives via -n, which overflows
+// for math.MinInt (-MinInt == MinInt) and recursed forever. It must terminate
+// and group the digits without panicking. Expected value is hand-derived from
+// strconv.Itoa(math.MinInt) with thousands separators inserted.
+func TestFormatNumber_GivenMinInt_ThenGroupsWithoutOverflow(t *testing.T) {
+	digits := strconv.Itoa(math.MinInt)[1:] // strip leading '-'
+	var sb strings.Builder
+	sb.WriteByte('-')
+	for i, c := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteRune(c)
+	}
+	want := sb.String()
+
+	if got := analyzer.FormatNumber(math.MinInt); got != want {
+		t.Fatalf("FormatNumber(math.MinInt) = %q, want %q", got, want)
+	}
+}
+
+func TestRunList_WhenProjectFilterMatches_ThenOnlyPrintsMatchingProjects(t *testing.T) {
+	root := t.TempDir()
+	metaDir := filepath.Join(root, "session-meta")
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("create meta dir: %v", err)
+	}
+	writeListMeta(t, metaDir, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "/tmp/api", "api prompt")
+	writeListMeta(t, metaDir, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "/tmp/web", "web prompt")
+
+	var stdout, stderr bytes.Buffer
+	err := runList([]string{"-p", "api"}, &stdout, &stderr, parser.Store{SessionMetaDir: metaDir})
+	if err != nil {
+		t.Fatalf("runList returned error: %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "api prompt") {
+		t.Fatalf("stdout missing api session:\n%s", got)
+	}
+	if strings.Contains(got, "web prompt") {
+		t.Fatalf("stdout includes filtered web session:\n%s", got)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunList_WhenProjectFilterMatchesNothing_ThenWritesNoSessionsFound(t *testing.T) {
+	root := t.TempDir()
+	metaDir := filepath.Join(root, "session-meta")
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("create meta dir: %v", err)
+	}
+	writeListMeta(t, metaDir, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "/tmp/api", "api prompt")
+
+	var stdout, stderr bytes.Buffer
+	err := runList([]string{"-p", "web"}, &stdout, &stderr, parser.Store{SessionMetaDir: metaDir})
+	if err != nil {
+		t.Fatalf("runList returned error: %v", err)
+	}
+	if got := stdout.String(); got != "No sessions found.\n" {
+		t.Fatalf("stdout = %q, want no sessions message", got)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunList_WhenMetadataIsInvalid_ThenWarnsAndContinues(t *testing.T) {
+	root := t.TempDir()
+	metaDir := filepath.Join(root, "session-meta")
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("create meta dir: %v", err)
+	}
+	writeListMeta(t, metaDir, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "/tmp/api", "api prompt")
+	if err := os.WriteFile(filepath.Join(metaDir, "bad.json"), []byte(`{"session_id":`), 0o644); err != nil {
+		t.Fatalf("write bad meta: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err := runList(nil, &stdout, &stderr, parser.Store{SessionMetaDir: metaDir})
+	if err != nil {
+		t.Fatalf("runList returned error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "api prompt") {
+		t.Fatalf("stdout missing valid session:\n%s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "warning: skipping invalid metadata") {
+		t.Fatalf("stderr missing invalid metadata warning:\n%s", stderr.String())
+	}
+}
+
+// Regression (F1): `list -n -1` (and 0) used to return an empty list with exit
+// 0, giving no signal that the requested display count was nonsensical. -n is
+// "max sessions to display" and must be a positive integer; any value < 1 is a
+// validation error that fails the command.
+func TestRunList_WhenDisplayCountIsNotPositive_ThenReturnsValidationError(t *testing.T) {
+	tests := []struct {
+		name  string
+		nFlag string
+	}{
+		{name: "negative", nFlag: "-1"},
+		{name: "zero", nFlag: "0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			// Store is irrelevant: validation must reject before listing anything.
+			err := runList([]string{"-n", tt.nFlag}, &stdout, &stderr, parser.Store{})
+			if err == nil {
+				t.Fatalf("runList(-n %s) returned nil error, want validation error", tt.nFlag)
+			}
+			if !strings.Contains(err.Error(), "-n must be a positive integer") {
+				t.Fatalf("error = %v, want '-n must be a positive integer'", err)
+			}
+		})
+	}
+}
+
+// Regression (F2): `read -max-lines -1` was silently treated as 0 (unlimited),
+// hiding the user's mistake. A negative cap is meaningless and must be a
+// validation error. 0 retains its documented "unlimited" meaning.
+func TestRunRead_WhenMaxLinesIsNegative_ThenReturnsValidationError(t *testing.T) {
+	root, sid := writeCLIFixture(t)
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+	var stdout, stderr bytes.Buffer
+	err := runRead([]string{sid, "-max-lines", "-1"}, &stdout, &stderr, store, testReader)
+	if err == nil {
+		t.Fatal("runRead(-max-lines -1) returned nil error, want validation error")
+	}
+	if !strings.Contains(err.Error(), "-max-lines must be") {
+		t.Fatalf("error = %v, want -max-lines validation message", err)
+	}
+}
+
+// Guards F2's carve-out: -max-lines 0 is the documented "unlimited" sentinel and
+// must keep working. The fixture has two message lines plus headers, all of which
+// must appear when no cap is applied.
+func TestRunRead_WhenMaxLinesIsZero_ThenEmitsUnlimitedOutput(t *testing.T) {
+	root, sid := writeCLIFixture(t)
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+	var stdout, stderr bytes.Buffer
+	if err := runRead([]string{sid, "-max-lines", "0"}, &stdout, &stderr, store, testReader); err != nil {
+		t.Fatalf("runRead(-max-lines 0) returned error: %v", err)
+	}
+	got := stdout.String()
+	// Both the user line and the assistant reply survive when unlimited.
+	if !strings.Contains(got, "hello") || !strings.Contains(got, "hi") {
+		t.Fatalf("stdout missing unlimited output (both messages):\n%s", got)
+	}
+}
+
+// Regression (F3): an empty session_id used to be matched as a prefix against
+// every session, producing the misleading "ambiguous prefix ”" error. The user
+// simply omitted the ID, so the message must say it is required and must not
+// mention ambiguity. ResolveSession is the single choke point, so every command
+// that accepts a session_id inherits this; we cover read, stats, and expand
+// (expand calls ResolveSession directly rather than via the helper).
+func TestRunCommands_WhenSessionIDIsEmpty_ThenReturnsRequiredError(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func(args []string, out, errOut *bytes.Buffer, store parser.Store) error
+		args []string
+	}{
+		{
+			name: "read",
+			run:  func(a []string, o, e *bytes.Buffer, s parser.Store) error { return runRead(a, o, e, s, testReader) },
+			args: []string{""},
+		},
+		{
+			name: "stats",
+			run:  func(a []string, o, e *bytes.Buffer, s parser.Store) error { return runStats(a, o, e, s, testReader) },
+			args: []string{""},
+		},
+		{
+			name: "expand",
+			run:  func(a []string, o, e *bytes.Buffer, s parser.Store) error { return runExpand(a, o, e, s, testReader) },
+			args: []string{"", "uCVa"}, // expand needs a tool ID arg too
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := tt.run(tt.args, &stdout, &stderr, parser.Store{})
+			if err == nil {
+				t.Fatalf("%s with empty session_id returned nil error", tt.name)
+			}
+			if !strings.Contains(err.Error(), "required") {
+				t.Fatalf("%s error = %v, want 'required'", tt.name, err)
+			}
+			if strings.Contains(err.Error(), "ambiguous") {
+				t.Fatalf("%s error = %v, must not mention 'ambiguous'", tt.name, err)
+			}
+		})
+	}
+}
+
+func TestRunRead_WhenSessionIDIsMissing_ThenReturnsError(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runRead(nil, &stdout, &stderr, parser.Store{}, testReader)
+	if err == nil {
+		t.Fatal("runRead returned nil error, want missing session_id")
+	}
+	if !strings.Contains(err.Error(), "session_id is required") {
+		t.Fatalf("error = %v, want session_id is required", err)
+	}
+}
+
+func TestRunRead_WhenSessionExists_ThenWritesOutput(t *testing.T) {
+	root, sid := writeCLIFixture(t)
+	var stdout, stderr bytes.Buffer
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+
+	err := runRead([]string{sid}, &stdout, &stderr, store, testReader)
+	if err != nil {
+		t.Fatalf("runRead returned error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "[00:00:00] user:\nhello") {
+		t.Fatalf("stdout missing read output:\n%s", stdout.String())
+	}
+}
+
+func TestRunContext_WhenSessionExists_ThenWritesHeaderAndContext(t *testing.T) {
+	root, sid := writeCLIFixture(t)
+	var stdout, stderr bytes.Buffer
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+
+	err := runContext([]string{sid}, &stdout, &stderr, store, testReader)
+	if err != nil {
+		t.Fatalf("runContext returned error: %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "# Session 12345678 | proj | 1m") || !strings.Contains(got, "U: hello") {
+		t.Fatalf("stdout missing context output:\n%s", got)
+	}
+}
+
+func TestRunStats_WhenNoTokens_ThenWritesCharacterBreakdown(t *testing.T) {
+	root, sid := writeCLIFixture(t)
+	var stdout, stderr bytes.Buffer
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+
+	err := runStats([]string{"--no-tokens", sid}, &stdout, &stderr, store, testReader)
+	if err != nil {
+		t.Fatalf("runStats returned error: %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "Session: 12345678") || !strings.Contains(got, "=== Breakdown ===") {
+		t.Fatalf("stdout missing stats output:\n%s", got)
+	}
+}
+
+// When token counting fails, runStats must not fall back to local estimates.
+// Token output is only meaningful when backed by the Anthropic token counting
+// API; without it, the command should explain how to configure the API key.
+func TestRunStats_WhenTokenAPIUnavailable_ThenPrintsConfigHintWithoutEstimate(t *testing.T) {
+	root := t.TempDir()
+	sid := "12345678-1234-1234-1234-123456789abc"
+	projectDir := filepath.Join(root, ".claude", "projects", "proj")
+	metaDir := filepath.Join(root, ".claude", "usage-data", "session-meta")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("create meta dir: %v", err)
+	}
+	transcript := strings.Join([]string{
+		`{"type":"user","timestamp":"2026-05-28T00:00:00Z","message":{"role":"user","content":"hello"}}`,
+		`{"type":"assistant","timestamp":"2026-05-28T00:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"tool_use","name":"Bash","id":"toolu_1","input":{"command":"echo this raw input is cut from the filtered stream"}}]}}`,
+		`{"type":"user","timestamp":"2026-05-28T00:00:02Z","toolUseResult":{"success":true,"commandName":"Bash"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"and this raw result is also cut from the filtered stream"}]}}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(projectDir, sid+".jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	writeListMeta(t, metaDir, sid, "/tmp/proj", "hello")
+	store := parser.Store{ProjectsDir: filepath.Join(root, ".claude", "projects"), SessionMetaDir: metaDir}
+
+	// Empty key + no config.json => CountTokensAPI returns before any network call.
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("HOME", root)
+	config.Reset()
+
+	var stdout, stderr bytes.Buffer
+	if err := runStats([]string{sid}, &stdout, &stderr, store, testReader); err != nil {
+		t.Fatalf("runStats returned error: %v", err)
+	}
+	got := stdout.String()
+
+	if !strings.Contains(got, "hint: to see token counts") {
+		t.Fatalf("stdout missing config hint:\n%s", got)
+	}
+	if strings.Contains(stderr.String(), "hint:") {
+		t.Fatalf("hint must not appear in stderr (renders red in PowerShell):\n%s", stderr.String())
+	}
+	if strings.Contains(got, "=== Tokens (estimated) ===") {
+		t.Fatalf("stdout must not print heuristic token estimates:\n%s", got)
+	}
+	if strings.Contains(got, "=== Tokens (Anthropic API) ===") {
+		t.Fatalf("stdout unexpectedly took the API success branch:\n%s", got)
+	}
+}
+
+// pad10 right-aligns s in a 10-wide field, matching runStats' "%10s" format,
+// so assertions can pin a value to a specific labelled line.
+func pad10(s string) string {
+	if len(s) >= 10 {
+		return s
+	}
+	return strings.Repeat(" ", 10-len(s)) + s
+}
+
+// When both concurrent token-count calls succeed, runStats prints the
+// Anthropic-API block (not the estimate block). The package-level
+// newCountTokensFn seam lets us stub a deterministic success offline. Returning
+// distinct raw/filtered counts proves each result is routed to its own line
+// rather than one value being printed twice.
+func TestRunStats_WhenTokenAPISucceeds_ThenPrintsAPITokenCounts(t *testing.T) {
+	// A tool_use carries raw input/result that is CUT from the filtered stream,
+	// so RawText and FilteredText genuinely differ — letting the stub route a
+	// distinct count to each line and proving they aren't conflated.
+	root := t.TempDir()
+	sid := "12345678-1234-1234-1234-123456789abc"
+	projectDir := filepath.Join(root, ".claude", "projects", "proj")
+	metaDir := filepath.Join(root, ".claude", "usage-data", "session-meta")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("create meta dir: %v", err)
+	}
+	transcript := strings.Join([]string{
+		`{"type":"user","timestamp":"2026-05-28T00:00:00Z","message":{"role":"user","content":"hello"}}`,
+		`{"type":"assistant","timestamp":"2026-05-28T00:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"tool_use","name":"Bash","id":"toolu_1","input":{"command":"echo this raw input is cut from filtered"}}]}}`,
+		`{"type":"user","timestamp":"2026-05-28T00:00:02Z","toolUseResult":{"success":true,"commandName":"Bash"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"and this raw result is also cut"}]}}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(projectDir, sid+".jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	writeListMeta(t, metaDir, sid, "/tmp/proj", "hello")
+	store := parser.Store{ProjectsDir: filepath.Join(root, ".claude", "projects"), SessionMetaDir: metaDir}
+
+	result := analyzer.ComputeStats(mustReadAll(t, filepath.Join(projectDir, sid+".jsonl")))
+	if result.RawText == result.FilteredText {
+		t.Fatalf("fixture invalid: RawText and FilteredText are identical, cannot distinguish lines")
+	}
+
+	const (
+		rawCount  = 1234
+		filtCount = 567
+	)
+	original := newCountTokensFn
+	t.Cleanup(func() { newCountTokensFn = original })
+	factoryCalls := 0
+	// Route the larger count to the raw stream, the smaller to the filtered
+	// stream. A mutation that fed both lines the same text would print one
+	// value twice and drop the other.
+	newCountTokensFn = func(model string) (countTokensFunc, error) {
+		factoryCalls++
+		return func(text string) (int, error) {
+			if text == result.RawText {
+				return rawCount, nil
+			}
+			return filtCount, nil
+		}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := runStats([]string{sid}, &stdout, &stderr, store, testReader); err != nil {
+		t.Fatalf("runStats returned error: %v", err)
+	}
+	got := stdout.String()
+
+	if !strings.Contains(got, "=== Tokens (Anthropic API) ===") {
+		t.Fatalf("stdout missing API-tokens header:\n%s", got)
+	}
+	if strings.Contains(got, "=== Tokens (estimated) ===") {
+		t.Fatalf("stdout unexpectedly took the estimate branch:\n%s", got)
+	}
+	if strings.Contains(got, "~") {
+		t.Fatalf("API branch should not print '~' approximate markers:\n%s", got)
+	}
+	if factoryCalls != 1 {
+		t.Fatalf("newCountTokensFn calls = %d, want 1", factoryCalls)
+	}
+	// Each count must land on its correctly-labelled line. Pinning the value to
+	// the line (not just "appears somewhere") is what catches a SUT mutation
+	// that swaps which stream each goroutine counts.
+	if !strings.Contains(got, "Raw:      "+pad10(analyzer.FormatNumber(rawCount))+"\n") {
+		t.Fatalf("stdout missing raw API count %d on Raw line:\n%s", rawCount, got)
+	}
+	if !strings.Contains(got, "Filtered: "+pad10(analyzer.FormatNumber(filtCount))+"\n") {
+		t.Fatalf("stdout missing filtered API count %d on Filtered line:\n%s", filtCount, got)
+	}
+	// Saved = raw - filtered must also be printed (guards the saved math).
+	if !strings.Contains(got, "Saved:    "+pad10(analyzer.FormatNumber(rawCount-filtCount))) {
+		t.Fatalf("stdout missing saved count %d on Saved line:\n%s", rawCount-filtCount, got)
+	}
+}
+
+func mustReadAll(t *testing.T, path string) []session.Event {
+	t.Helper()
+	events, err := claudecodec.ReadAll(path)
+	if err != nil {
+		t.Fatalf("ReadAll(%s): %v", path, err)
+	}
+	return events
+}
+
+// Regression (F1): `audit -n -1` (and 0) used to be silently accepted, sampling
+// zero items and exiting 0 — the user got an empty result with no feedback that
+// their -n was nonsensical. The -n sample count must be a positive integer; any
+// value < 1 is a validation error that fails the command before reading the
+// transcript. Spec: -n "number of samples per category" requires >= 1.
+func TestRunAudit_WhenSampleCountIsNotPositive_ThenReturnsValidationError(t *testing.T) {
+	tests := []struct {
+		name  string
+		nFlag string
+	}{
+		{name: "negative", nFlag: "-1"},
+		{name: "zero", nFlag: "0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			// Store is irrelevant: validation must reject before any session lookup.
+			err := runAudit([]string{"anysession", "-n", tt.nFlag}, &stdout, &stderr, parser.Store{}, testReader)
+			if err == nil {
+				t.Fatalf("runAudit(-n %s) returned nil error, want validation error", tt.nFlag)
+			}
+			if !strings.Contains(err.Error(), "-n must be a positive integer") {
+				t.Fatalf("error = %v, want '-n must be a positive integer'", err)
+			}
+		})
+	}
+}
+
+func TestRunExpand_GivenExistingToolID_WhenExpanded_ThenShowsFullInputAndResult(t *testing.T) {
+	// writeCLIFixture has no tool_use events, so build a fixture with one inline.
+	root := t.TempDir()
+	sid := "12345678-1234-1234-1234-123456789abc"
+	projectDir := filepath.Join(root, ".claude", "projects", "proj")
+	metaDir := filepath.Join(root, ".claude", "usage-data", "session-meta")
+	_ = os.MkdirAll(projectDir, 0o755)
+	_ = os.MkdirAll(metaDir, 0o755)
+	transcript := strings.Join([]string{
+		`{"type":"assistant","timestamp":"2026-05-28T00:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"tool_use","name":"Bash","id":"toolu_01XYZabcdefgABCDuCVa","input":{"command":"echo hello","description":"Say hello"}}]}}`,
+		`{"type":"user","timestamp":"2026-05-28T00:00:02Z","toolUseResult":{"success":true,"commandName":"Bash"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01XYZabcdefgABCDuCVa","content":"hello"}]}}`,
+		"",
+	}, "\n")
+	_ = os.WriteFile(filepath.Join(projectDir, sid+".jsonl"), []byte(transcript), 0o644)
+	writeListMeta(t, metaDir, sid, "/tmp/proj", "hello")
+
+	var stdout, stderr bytes.Buffer
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: metaDir,
+	}
+	// Short ID of "toolu_01XYZabcdefgABCDuCVa" -> last 4 chars = "uCVa"
+	err := runExpand([]string{sid, "uCVa"}, &stdout, &stderr, store, testReader)
+	if err != nil {
+		t.Fatalf("runExpand returned error: %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "=== [Bash#uCVa] ===") {
+		t.Fatalf("expand output missing header\ngot:\n%s", got)
+	}
+	if !strings.Contains(got, "echo hello") {
+		t.Fatalf("expand output missing tool input\ngot:\n%s", got)
+	}
+	if !strings.Contains(got, "Result (ok):") {
+		t.Fatalf("expand output missing result status\ngot:\n%s", got)
+	}
+	if !strings.Contains(got, "hello") {
+		t.Fatalf("expand output missing result text\ngot:\n%s", got)
+	}
+}
+
+// expand's usage entry must record every requested tool ID (not just the
+// ones that resolved), so usage analysis can tell what a caller wanted to
+// inspect even when a lookup missed.
+func TestRunExpand_GivenToolIDs_WhenExpanded_ThenUsageLogRecordsRequestedToolIDs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Claude Code sessions only exist on macOS/Linux")
+	}
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("CC_SESSION_NO_USAGE", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	config.Reset()
+	t.Cleanup(config.Reset)
+	usageTestCallerSession(t, root)
+
+	sid := "12345678-1234-1234-1234-123456789abc"
+	projectDir := filepath.Join(root, "fixture-projects", "proj")
+	metaDir := filepath.Join(root, "fixture-usage-data", "session-meta")
+	_ = os.MkdirAll(projectDir, 0o755)
+	_ = os.MkdirAll(metaDir, 0o755)
+	transcript := strings.Join([]string{
+		`{"type":"assistant","timestamp":"2026-05-28T00:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"tool_use","name":"Bash","id":"toolu_01XYZabcdefgABCDuCVa","input":{"command":"echo hello","description":"Say hello"}}]}}`,
+		`{"type":"user","timestamp":"2026-05-28T00:00:02Z","toolUseResult":{"success":true,"commandName":"Bash"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01XYZabcdefgABCDuCVa","content":"hello"}]}}`,
+		"",
+	}, "\n")
+	_ = os.WriteFile(filepath.Join(projectDir, sid+".jsonl"), []byte(transcript), 0o644)
+	writeListMeta(t, metaDir, sid, "/tmp/proj", "hello")
+
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, "fixture-projects"),
+		SessionMetaDir: metaDir,
+	}
+
+	var stdout, stderr bytes.Buffer
+	beginUsageTracking("expand")
+	// "uCVa" resolves; "ZZZZ" doesn't, but must still be recorded as requested.
+	err := runExpand([]string{sid, "uCVa", "ZZZZ"}, &stdout, &stderr, store, testReader)
+	if err != nil {
+		t.Fatalf("runExpand returned error: %v", err)
+	}
+	finalizeUsageLog(err)
+	waitUsageLog()
+
+	usagePath := filepath.Join(root, ".claude", "skills", "cc-session", "usage.jsonl")
+	data, readErr := os.ReadFile(usagePath)
+	if readErr != nil {
+		t.Fatalf("usage.jsonl not created: %v", readErr)
+	}
+	line := strings.TrimSpace(string(data))
+	if !strings.Contains(line, `"tool_ids":["uCVa","ZZZZ"]`) {
+		t.Errorf("usage.jsonl missing requested tool_ids, got: %s", line)
+	}
+}
+
+// Regression: short IDs are only the last 4 chars of tool_use_id, so two
+// distinct tools can share one short ID. The old code keyed a map by short ID
+// and silently overwrote, so expand would return whichever tool appeared last
+// in the transcript — confidently wrong data with no warning. expand must
+// instead detect the collision, refuse to guess, and list the full IDs so the
+// user can disambiguate.
+func TestRunExpand_GivenShortIDCollision_WhenExpanded_ThenWarnsAndDoesNotGuess(t *testing.T) {
+	root := t.TempDir()
+	sid := "12345678-1234-1234-1234-123456789abc"
+	projectDir := filepath.Join(root, ".claude", "projects", "proj")
+	metaDir := filepath.Join(root, ".claude", "usage-data", "session-meta")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("create meta dir: %v", err)
+	}
+
+	// Two tools whose full IDs differ but whose last 4 chars both equal "uCVa".
+	firstID := "toolu_01AAAAAAAAAAAAAAuCVa"
+	secondID := "toolu_01BBBBBBBBBBBBBBuCVa"
+	transcript := strings.Join([]string{
+		`{"type":"assistant","timestamp":"2026-05-28T00:00:01Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"` + firstID + `","input":{"command":"echo first"}}]}}`,
+		`{"type":"assistant","timestamp":"2026-05-28T00:00:02Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","id":"` + secondID + `","input":{"command":"echo second"}}]}}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(projectDir, sid+".jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	writeListMeta(t, metaDir, sid, "/tmp/proj", "hello")
+
+	var stdout, stderr bytes.Buffer
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: metaDir,
+	}
+	err := runExpand([]string{sid, "uCVa"}, &stdout, &stderr, store, testReader)
+
+	// The only requested ID is ambiguous, so nothing was expanded -> error.
+	if err == nil {
+		t.Fatal("runExpand returned nil error, want collision to yield no matches")
+	}
+	// Must not silently emit either tool's body as if it were the answer.
+	if strings.Contains(stdout.String(), "echo first") || strings.Contains(stdout.String(), "echo second") {
+		t.Fatalf("expand emitted a guessed tool body on collision:\n%s", stdout.String())
+	}
+	// Must warn about ambiguity and list BOTH full IDs for disambiguation.
+	gotErr := stderr.String()
+	if !strings.Contains(gotErr, "ambiguous") {
+		t.Fatalf("stderr missing ambiguity warning:\n%s", gotErr)
+	}
+	if !strings.Contains(gotErr, firstID) || !strings.Contains(gotErr, secondID) {
+		t.Fatalf("stderr did not list both colliding full IDs:\n%s", gotErr)
+	}
+}
+
+// A user can disambiguate a colliding short ID by passing the full tool_use_id.
+func TestRunExpand_GivenFullIDOnCollision_WhenExpanded_ThenResolvesUnambiguously(t *testing.T) {
+	root := t.TempDir()
+	sid := "12345678-1234-1234-1234-123456789abc"
+	projectDir := filepath.Join(root, ".claude", "projects", "proj")
+	metaDir := filepath.Join(root, ".claude", "usage-data", "session-meta")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("create meta dir: %v", err)
+	}
+
+	firstID := "toolu_01AAAAAAAAAAAAAAuCVa"
+	secondID := "toolu_01BBBBBBBBBBBBBBuCVa"
+	transcript := strings.Join([]string{
+		`{"type":"assistant","timestamp":"2026-05-28T00:00:01Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"` + firstID + `","input":{"command":"echo first"}}]}}`,
+		`{"type":"assistant","timestamp":"2026-05-28T00:00:02Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","id":"` + secondID + `","input":{"command":"echo second"}}]}}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(projectDir, sid+".jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	writeListMeta(t, metaDir, sid, "/tmp/proj", "hello")
+
+	var stdout, stderr bytes.Buffer
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: metaDir,
+	}
+	if err := runExpand([]string{sid, secondID}, &stdout, &stderr, store, testReader); err != nil {
+		t.Fatalf("runExpand returned error: %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "echo second") {
+		t.Fatalf("full ID did not resolve to the intended tool:\n%s", got)
+	}
+	if strings.Contains(got, "echo first") {
+		t.Fatalf("full ID resolved to the wrong tool:\n%s", got)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty when full ID is unambiguous", stderr.String())
+	}
+}
+
+func TestRunExpand_GivenNonexistentToolID_WhenExpanded_ThenReturnsError(t *testing.T) {
+	root, sid := writeCLIFixture(t)
+	var stdout, stderr bytes.Buffer
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+	err := runExpand([]string{sid, "ZZZZ"}, &stdout, &stderr, store, testReader)
+	if err == nil {
+		t.Fatal("runExpand should return error when no tool IDs match")
+	}
+	if !strings.Contains(err.Error(), "no matching tool IDs found") {
+		t.Fatalf("error = %v, want 'no matching tool IDs found'", err)
+	}
+}
+
+func TestRunExpand_GivenNoArgs_WhenCalled_ThenReturnsUsageError(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runExpand(nil, &stdout, &stderr, parser.Store{}, testReader)
+	if err == nil {
+		t.Fatal("runExpand should return error with no args")
+	}
+	if !strings.Contains(err.Error(), "usage:") {
+		t.Fatalf("error = %v, want usage message", err)
+	}
+}
+
+// writeVerboseCLIFixture builds a session whose transcript carries the two
+// payloads the verbose flags gate: an assistant thinking block and a slash
+// command invocation (which surfaces as a "[/qa]" marker, plus its stdout as
+// droppable command noise). Returns root and session id for runRead/runContext.
+func writeVerboseCLIFixture(t *testing.T) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	sid := "12345678-1234-1234-1234-123456789abc"
+	projectDir := filepath.Join(root, ".claude", "projects", "proj")
+	metaDir := filepath.Join(root, ".claude", "usage-data", "session-meta")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("create meta dir: %v", err)
+	}
+	transcript := strings.Join([]string{
+		`{"type":"user","timestamp":"2026-05-28T00:00:00Z","message":{"role":"user","content":"<command-name>/qa</command-name>\n<command-message>qa</command-message>\n<command-args></command-args>"}}`,
+		`{"type":"user","timestamp":"2026-05-28T00:00:01Z","message":{"role":"user","content":"<local-command-stdout>QA_STDOUT_PAYLOAD</local-command-stdout>"}}`,
+		`{"type":"assistant","timestamp":"2026-05-28T00:00:02Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"SECRET_THINKING_PAYLOAD"},{"type":"text","text":"done"}]}}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(projectDir, sid+".jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	writeListMeta(t, metaDir, sid, "/tmp/proj", "hello")
+	return root, sid
+}
+
+// The verbose flags are wired flag-string -> *flag.Bool -> FormatOptions inside
+// runRead/runContext. The formatter-level tests build FormatOptions directly and
+// thus skip that wiring: if a flag name were mistyped or a FormatOptions field
+// left unassigned, no formatter test would catch it. These cases drive the real
+// flag parser through runRead/runContext and assert each gated payload is hidden
+// by default and revealed only when its flag string is passed. A mutation that
+// drops the VerboseThinking or VerboseCommands assignment in runRead/runContext
+// turns the corresponding "with flag" case red.
+func TestRunReadContext_VerboseFlagWiring_GatesPayloadBehindFlagString(t *testing.T) {
+	const (
+		thinkingPayload = "SECRET_THINKING_PAYLOAD"
+		commandPayload  = "QA_STDOUT_PAYLOAD"
+	)
+	commands := []struct {
+		name string
+		run  func(args []string, out, errOut *bytes.Buffer, store parser.Store) error
+	}{
+		{
+			name: "read",
+			run:  func(a []string, o, e *bytes.Buffer, s parser.Store) error { return runRead(a, o, e, s, testReader) },
+		},
+		{
+			name: "context",
+			run:  func(a []string, o, e *bytes.Buffer, s parser.Store) error { return runContext(a, o, e, s, testReader) },
+		},
+	}
+	cases := []struct {
+		name    string
+		flag    string
+		payload string
+	}{
+		{name: "verbose-thinking reveals thinking", flag: "-verbose-thinking", payload: thinkingPayload},
+		{name: "verbose-commands reveals command output", flag: "-verbose-commands", payload: commandPayload},
+	}
+
+	for _, cmd := range commands {
+		for _, tc := range cases {
+			t.Run(cmd.name+"/"+tc.name, func(t *testing.T) {
+				root, sid := writeVerboseCLIFixture(t)
+				store := parser.Store{
+					ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+					SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+				}
+
+				var noFlagOut, noFlagErr bytes.Buffer
+				if err := cmd.run([]string{sid}, &noFlagOut, &noFlagErr, store); err != nil {
+					t.Fatalf("%s without flag returned error: %v", cmd.name, err)
+				}
+				if strings.Contains(noFlagOut.String(), tc.payload) {
+					t.Fatalf("%s leaked %q without %s:\n%s", cmd.name, tc.payload, tc.flag, noFlagOut.String())
+				}
+
+				var withFlagOut, withFlagErr bytes.Buffer
+				if err := cmd.run([]string{sid, tc.flag}, &withFlagOut, &withFlagErr, store); err != nil {
+					t.Fatalf("%s with %s returned error: %v", cmd.name, tc.flag, err)
+				}
+				if !strings.Contains(withFlagOut.String(), tc.payload) {
+					t.Fatalf("%s did not reveal %q with %s:\n%s", cmd.name, tc.payload, tc.flag, withFlagOut.String())
+				}
+			})
+		}
+	}
+}
+
+func writeCLIFixture(t *testing.T) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	sid := "12345678-1234-1234-1234-123456789abc"
+	projectDir := filepath.Join(root, ".claude", "projects", "proj")
+	metaDir := filepath.Join(root, ".claude", "usage-data", "session-meta")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("create meta dir: %v", err)
+	}
+	transcript := strings.Join([]string{
+		`{"type":"user","timestamp":"2026-05-28T00:00:00Z","message":{"role":"user","content":"hello"}}`,
+		`{"type":"assistant","timestamp":"2026-05-28T00:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(projectDir, sid+".jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	writeListMeta(t, metaDir, sid, "/tmp/proj", "hello")
+	return root, sid
+}
+
+func writeListMeta(t *testing.T, metaDir string, sid string, projectPath string, firstPrompt string) {
+	t.Helper()
+	meta := `{"session_id":"` + sid + `","project_path":"` + projectPath + `","duration_minutes":1,"user_message_count":1,"assistant_message_count":2,"first_prompt":"` + firstPrompt + `","start_time":"` + time.Now().UTC().Format(time.RFC3339) + `"}`
+	if err := os.WriteFile(filepath.Join(metaDir, sid+".json"), []byte(meta), 0o644); err != nil {
+		t.Fatalf("write meta: %v", err)
+	}
+}
+
+func TestRunList_GivenJSONLWithoutMetadata_ThenShowsFallbackSession(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "projects", "-Users-me-proj")
+	metaDir := filepath.Join(root, "session-meta")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("create meta dir: %v", err)
+	}
+	sid := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	transcript := strings.Join([]string{
+		`{"type":"user","timestamp":"2026-06-15T10:00:00+00:00","message":{"role":"user","content":"help me understand channels"}}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(projectDir, sid+".jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	// Deliberately no metadata file for this session
+
+	var stdout, stderr bytes.Buffer
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, "projects"),
+		SessionMetaDir: metaDir,
+		HeaderScanner:  claudecodec.Codec{},
+	}
+	err := runList(nil, &stdout, &stderr, store)
+	if err != nil {
+		t.Fatalf("runList returned error: %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, sid) {
+		t.Fatalf("stdout missing session ID %s (JSONL fallback session not listed):\n%s", sid, got)
+	}
+	if !strings.Contains(got, "help me understand channels") {
+		t.Fatalf("stdout missing first prompt from JSONL fallback:\n%s", got)
+	}
+	if strings.Contains(got, "u:0") || strings.Contains(got, "a:0") {
+		t.Fatalf("stdout should not show u:0/a:0 for JSONL fallback (no count data):\n%s", got)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty for JSONL-only session", stderr.String())
+	}
+}
+
+func TestRunList_GivenMetaWithCounts_ThenShowsCounts(t *testing.T) {
+	root := t.TempDir()
+	metaDir := filepath.Join(root, "session-meta")
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("create meta dir: %v", err)
+	}
+	writeListMeta(t, metaDir, "cccccccc-cccc-cccc-cccc-cccccccccccc", "/tmp/proj", "hello")
+
+	var stdout, stderr bytes.Buffer
+	err := runList(nil, &stdout, &stderr, parser.Store{SessionMetaDir: metaDir})
+	if err != nil {
+		t.Fatalf("runList returned error: %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "u:1 a:2") {
+		t.Fatalf("stdout should show u:1 a:2 from metadata counts:\n%s", got)
+	}
+}
+
+func TestRunList_GivenJSONLAndMeta_ThenMetaWinsAndNoDuplicates(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "projects", "-Users-me-proj")
+	metaDir := filepath.Join(root, "session-meta")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("create meta dir: %v", err)
+	}
+	sid := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+	// JSONL with a different prompt than the metadata
+	transcript := strings.Join([]string{
+		`{"type":"user","timestamp":"2026-06-15T10:00:00+00:00","message":{"role":"user","content":"jsonl prompt here"}}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(projectDir, sid+".jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	// Metadata for the same session with canonical values
+	writeListMeta(t, metaDir, sid, "/Users/me/proj", "meta prompt here")
+
+	var stdout, stderr bytes.Buffer
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, "projects"),
+		SessionMetaDir: metaDir,
+		HeaderScanner:  claudecodec.Codec{},
+	}
+	err := runList(nil, &stdout, &stderr, store)
+	if err != nil {
+		t.Fatalf("runList returned error: %v", err)
+	}
+	got := stdout.String()
+	// Should appear exactly once (no duplicate from JSONL fallback)
+	if count := strings.Count(got, sid); count != 1 {
+		t.Fatalf("session ID %s appears %d times in output, want exactly 1:\n%s", sid, count, got)
+	}
+	// Metadata prompt wins over JSONL prompt
+	if !strings.Contains(got, "meta prompt here") {
+		t.Fatalf("stdout missing metadata first_prompt (meta must win over JSONL):\n%s", got)
+	}
+	if strings.Contains(got, "jsonl prompt here") {
+		t.Fatalf("stdout contains JSONL prompt (meta should win):\n%s", got)
+	}
+}
+
+func TestRunList_GivenJSONLOnly_WhenProjectFilterApplied_ThenFiltersCorrectly(t *testing.T) {
+	root := t.TempDir()
+	projectDirMatch := filepath.Join(root, "projects", "-Users-me-myapi")
+	projectDirOther := filepath.Join(root, "projects", "-Users-me-webapp")
+	metaDir := filepath.Join(root, "session-meta")
+	for _, d := range []string{projectDirMatch, projectDirOther, metaDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatalf("create dir %s: %v", d, err)
+		}
+	}
+
+	sidMatch := "cccccccc-cccc-cccc-cccc-cccccccccccc"
+	sidOther := "dddddddd-dddd-dddd-dddd-dddddddddddd"
+	for _, tc := range []struct {
+		sid    string
+		dir    string
+		prompt string
+	}{
+		{sid: sidMatch, dir: projectDirMatch, prompt: "api question"},
+		{sid: sidOther, dir: projectDirOther, prompt: "web question"},
+	} {
+		transcript := `{"type":"user","timestamp":"2026-06-15T10:00:00+00:00","message":{"role":"user","content":"` + tc.prompt + `"}}` + "\n"
+		if err := os.WriteFile(filepath.Join(tc.dir, tc.sid+".jsonl"), []byte(transcript), 0o644); err != nil {
+			t.Fatalf("write transcript: %v", err)
+		}
+	}
+
+	var stdout, stderr bytes.Buffer
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, "projects"),
+		SessionMetaDir: metaDir,
+		HeaderScanner:  claudecodec.Codec{},
+	}
+	err := runList([]string{"-p", "myapi"}, &stdout, &stderr, store)
+	if err != nil {
+		t.Fatalf("runList returned error: %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "api question") {
+		t.Fatalf("stdout missing matched JSONL session:\n%s", got)
+	}
+	if strings.Contains(got, "web question") {
+		t.Fatalf("stdout includes filtered-out session:\n%s", got)
+	}
+}
+
+// writeLargeCLIFixture creates a session transcript with many user messages
+// so that the default 200-line cap is triggered. Each user message renders as
+// 3 output lines (header, body, blank), so 100 messages = 300 lines > 200.
+func writeLargeCLIFixture(t *testing.T) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	sid := "12345678-1234-1234-1234-123456789abc"
+	projectDir := filepath.Join(root, ".claude", "projects", "proj")
+	metaDir := filepath.Join(root, ".claude", "usage-data", "session-meta")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("create project dir: %v", err)
+	}
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("create meta dir: %v", err)
+	}
+
+	var lines []string
+	for i := 0; i < 100; i++ {
+		lines = append(lines, `{"type":"user","timestamp":"2026-05-28T00:00:00Z","message":{"role":"user","content":"msg`+strings.Repeat("x", 5)+` `+fmt.Sprintf("%d", i)+`"}}`)
+	}
+	lines = append(lines, "")
+	transcript := strings.Join(lines, "\n")
+	if err := os.WriteFile(filepath.Join(projectDir, sid+".jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	writeListMeta(t, metaDir, sid, "/tmp/proj", "hello")
+	return root, sid
+}
+
+// TestRunRead_GivenLargeSession_WhenDefaultFlags_ThenTruncatesAt200
+// verifies that runRead with default flags (max-lines=200) clips output at 200
+// lines and adds a truncation message naming the resume offset.
+func TestRunRead_GivenLargeSession_WhenDefaultFlags_ThenTruncatesAt200(t *testing.T) {
+	root, sid := writeLargeCLIFixture(t)
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+	var stdout, stderr bytes.Buffer
+	if err := runRead([]string{sid}, &stdout, &stderr, store, testReader); err != nil {
+		t.Fatalf("runRead returned error: %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "--- truncated at line 200") {
+		t.Fatalf("default runRead must truncate at 200 lines:\n%s", got)
+	}
+	if !strings.Contains(got, "use --offset 200 to continue") {
+		t.Fatalf("truncation message must include --offset 200 hint:\n%s", got)
+	}
+}
+
+// TestRunRead_GivenLargeSession_WhenOffsetFlag_ThenSkipsLines
+// verifies that -offset N shifts the output window so lines before N are absent.
+func TestRunRead_GivenLargeSession_WhenOffsetFlag_ThenSkipsLines(t *testing.T) {
+	root, sid := writeLargeCLIFixture(t)
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+	var stdout, stderr bytes.Buffer
+	// -max-lines 0 (unlimited) so we see whether offset works independently.
+	// Offset 5 skips the two-line day marker plus the first message block
+	// (header, body, blank).
+	if err := runRead([]string{sid, "-offset", "5", "-max-lines", "0"}, &stdout, &stderr, store, testReader); err != nil {
+		t.Fatalf("runRead with -offset 5 returned error: %v", err)
+	}
+	got := stdout.String()
+	// "msgxxxxx 0" (message body) must be absent.
+	if strings.Contains(got, "msgxxxxx 0") {
+		t.Fatalf("offset=5 must skip message 0 body; still present:\n%s", got)
+	}
+	// Later messages must still appear.
+	if !strings.Contains(got, "msgxxxxx 5") {
+		t.Fatalf("offset=5 output must include message 5:\n%s", got)
+	}
+}
+
+// TestRunRead_GivenLargeSession_WhenMaxLinesZero_ThenEmitsUnlimitedOutput
+// verifies that -max-lines 0 disables the 200-line default cap.
+func TestRunRead_GivenLargeSession_WhenMaxLinesZero_ThenEmitsUnlimitedOutput(t *testing.T) {
+	root, sid := writeLargeCLIFixture(t)
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+	var stdout, stderr bytes.Buffer
+	if err := runRead([]string{sid, "-max-lines", "0"}, &stdout, &stderr, store, testReader); err != nil {
+		t.Fatalf("runRead(-max-lines 0) returned error: %v", err)
+	}
+	got := stdout.String()
+	if strings.Contains(got, "truncated") {
+		t.Fatalf("-max-lines 0 must disable truncation:\n%s", got)
+	}
+	// All 100 messages must appear.
+	if !strings.Contains(got, "msgxxxxx 99") {
+		t.Fatalf("-max-lines 0 must emit all messages including 99:\n%s", got)
+	}
+}
+
+// TestRunContext_GivenLargeSession_WhenDefaultFlags_ThenTruncatesAt200
+// verifies that runContext with default flags clips at 200 lines.
+func TestRunContext_GivenLargeSession_WhenDefaultFlags_ThenTruncatesAt200(t *testing.T) {
+	root, sid := writeLargeCLIFixture(t)
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+	var stdout, stderr bytes.Buffer
+	if err := runContext([]string{sid}, &stdout, &stderr, store, testReader); err != nil {
+		t.Fatalf("runContext returned error: %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "--- truncated at line 200") {
+		t.Fatalf("default runContext must truncate at 200 lines:\n%s", got)
+	}
+	if !strings.Contains(got, "use --offset 200 to continue") {
+		t.Fatalf("truncation message must include --offset 200 hint:\n%s", got)
+	}
+}
+
+// TestRunContext_GivenLargeSession_WhenOffsetAndMaxLines_ThenWindowsOutput
+// verifies that -offset and -max-lines combine correctly in context mode.
+func TestRunContext_GivenLargeSession_WhenOffsetAndMaxLines_ThenWindowsOutput(t *testing.T) {
+	root, sid := writeLargeCLIFixture(t)
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+	var stdout, stderr bytes.Buffer
+	if err := runContext([]string{sid, "-offset", "3", "-max-lines", "3"}, &stdout, &stderr, store, testReader); err != nil {
+		t.Fatalf("runContext with -offset and -max-lines returned error: %v", err)
+	}
+	got := stdout.String()
+	// offset=3, maxLines=3 → lines 3,4,5 of the context output.
+	// The context header ("# Session ...\n\n") occupies 2 lines, so
+	// the context body starts at line 2 (0-indexed). Line 3 is the first message
+	// body. Whatever appears, the truncation message must cite offset=6.
+	if !strings.Contains(got, "--- truncated at line 6") {
+		t.Fatalf("offset=3+maxLines=3 context must truncate at line 6:\n%s", got)
+	}
+}
+
+// TestRunRead_GivenNegativeOffset_WhenCalled_ThenReturnsValidationError
+// verifies that a negative offset is rejected before any session lookup.
+func TestRunRead_GivenNegativeOffset_WhenCalled_ThenReturnsValidationError(t *testing.T) {
+	root, sid := writeCLIFixture(t)
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+	var stdout, stderr bytes.Buffer
+	err := runRead([]string{sid, "-offset", "-1"}, &stdout, &stderr, store, testReader)
+	if err == nil {
+		t.Fatal("runRead(-offset -1) returned nil error, want validation error")
+	}
+	if !strings.Contains(err.Error(), "-offset") {
+		t.Fatalf("error = %v, want -offset validation message", err)
+	}
+}
+
+// --- Help flag handling ---
+
+func TestRunRead_GivenHelpFlag_ThenReturnsErrHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runRead([]string{"-h"}, &stdout, &stderr, parser.Store{}, testReader)
+	if err == nil || err.Error() != "flag: help requested" {
+		t.Fatalf("runRead(-h) = %v, want flag.ErrHelp", err)
+	}
+	if !strings.Contains(stderr.String(), "max-lines") {
+		t.Fatalf("stderr should contain flag descriptions, got: %q", stderr.String())
+	}
+}
+
+func TestRunStats_GivenHelpFlag_ThenReturnsErrHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runStats([]string{"-h"}, &stdout, &stderr, parser.Store{}, testReader)
+	if err == nil || err.Error() != "flag: help requested" {
+		t.Fatalf("runStats(-h) = %v, want flag.ErrHelp", err)
+	}
+	if !strings.Contains(stderr.String(), "no-tokens") {
+		t.Fatalf("stderr should contain flag descriptions, got: %q", stderr.String())
+	}
+}
+
+func TestRunList_GivenHelpFlag_ThenReturnsErrHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runList([]string{"-h"}, &stdout, &stderr, parser.Store{})
+	if err == nil || err.Error() != "flag: help requested" {
+		t.Fatalf("runList(-h) = %v, want flag.ErrHelp", err)
+	}
+	if !strings.Contains(stderr.String(), "-n") {
+		t.Fatalf("stderr should contain flag descriptions, got: %q", stderr.String())
+	}
+}
+
+func TestRunInherit_GivenHelpFlag_ThenReturnsErrHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runInherit([]string{"-h"}, &stdout, &stderr, parser.Store{}, testReader)
+	if err == nil || err.Error() != "flag: help requested" {
+		t.Fatalf("runInherit(-h) = %v, want flag.ErrHelp", err)
+	}
+	if !strings.Contains(stderr.String(), "page") {
+		t.Fatalf("stderr should contain flag descriptions, got: %q", stderr.String())
+	}
+}
+
+func TestRunContext_GivenHelpFlag_ThenReturnsErrHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runContext([]string{"-h"}, &stdout, &stderr, parser.Store{}, testReader)
+	if err == nil || err.Error() != "flag: help requested" {
+		t.Fatalf("runContext(-h) = %v, want flag.ErrHelp", err)
+	}
+	if !strings.Contains(stderr.String(), "max-lines") {
+		t.Fatalf("stderr should contain flag descriptions, got: %q", stderr.String())
+	}
+}
+
+func TestRunAudit_GivenHelpFlag_ThenReturnsErrHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runAudit([]string{"-h"}, &stdout, &stderr, parser.Store{}, testReader)
+	if err == nil || err.Error() != "flag: help requested" {
+		t.Fatalf("runAudit(-h) = %v, want flag.ErrHelp", err)
+	}
+	if !strings.Contains(stderr.String(), "-n") {
+		t.Fatalf("stderr should contain flag descriptions, got: %q", stderr.String())
+	}
+}
+
+func TestRunExpand_GivenHelpFlag_ThenReturnsUsageError(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runExpand([]string{"-h"}, &stdout, &stderr, parser.Store{}, testReader)
+	if err == nil || !strings.Contains(err.Error(), "usage:") {
+		t.Fatalf("runExpand(-h) = %v, want usage error", err)
+	}
+}
+
+func TestRunUsage_GivenHelpFlag_ThenReturnsErrHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runUsage([]string{"-h"}, &stdout, &stderr)
+	if err == nil || err.Error() != "flag: help requested" {
+		t.Fatalf("runUsage(-h) = %v, want flag.ErrHelp", err)
+	}
+	if !strings.Contains(stderr.String(), "-cmd") {
+		t.Fatalf("stderr should contain flag descriptions, got: %q", stderr.String())
+	}
+}
+
+func TestRunUsage_GivenExpandEntryWithToolIDs_WhenDisplayed_ThenShowsToolIDs(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
+
+	if err := tracker.LogUsage(tracker.UsageEntry{
+		Timestamp: "2026-06-15T10:00:00Z",
+		Command:   "expand",
+		Target:    "abc12345",
+		ToolIDs:   []string{"Q1hv", "ooQF"},
+	}); err != nil {
+		t.Fatalf("tracker.LogUsage: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := runUsage(nil, &stdout, &stderr); err != nil {
+		t.Fatalf("runUsage returned error: %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "tools:Q1hv,ooQF") {
+		t.Fatalf("usage output missing tool IDs, got: %s", got)
+	}
+}
+
+func TestRunHelp_GivenHelpFlag_ThenReturnsErrHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runHelp([]string{"-h"}, &stdout, &stderr)
+	if err == nil || err.Error() != "flag: help requested" {
+		t.Fatalf("runHelp(-h) = %v, want flag.ErrHelp", err)
+	}
+}
+
+func TestRunHelp_GivenNoFlags_ThenPrintsIntentToCommandCheatSheet(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := runHelp(nil, &stdout, &stderr); err != nil {
+		t.Fatalf("runHelp(nil) returned error: %v", err)
+	}
+	got := stdout.String()
+	for _, want := range []string{
+		"cc-session inherit <id>",
+		"cc-session read <id>",
+		"Session ID 支援 prefix match",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("cheat sheet missing %q, got:\n%s", want, got)
+		}
+	}
+}
+
+// buildArgumentHint feeds a Claude Code skill's argument-hint frontmatter, so
+// its output must be exactly one bracketed, pipe-separated line with no
+// stray whitespace. It must expose only the registry's user-facing,
+// session-driven quick actions: not the deprecated "inject" alias (hidden)
+// and not "benchmark" (a maintainer command with no argHint).
+func TestRunHelp_GivenArgumentHintFlag_ThenPrintsSingleBracketedPipeSeparatedLine(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := runHelp([]string{"--argument-hint"}, &stdout, &stderr); err != nil {
+		t.Fatalf("runHelp(--argument-hint) returned error: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimRight(stdout.String(), "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected exactly one line, got %d: %q", len(lines), stdout.String())
+	}
+	got := lines[0]
+
+	if !strings.HasPrefix(got, "[") || !strings.HasSuffix(got, "]") {
+		t.Fatalf("argument-hint line not bracketed: %q", got)
+	}
+	if !strings.Contains(got, " | ") {
+		t.Fatalf("argument-hint entries should be pipe-separated: %q", got)
+	}
+	if !strings.Contains(got, "inherit <id>") {
+		t.Fatalf("argument-hint missing inherit entry: %q", got)
+	}
+	if strings.Contains(got, "inject") {
+		t.Fatalf("argument-hint must not expose the deprecated inject alias: %q", got)
+	}
+	if strings.Contains(got, "benchmark") {
+		t.Fatalf("argument-hint must not include benchmark (no argHint, not a quick-launch action): %q", got)
+	}
+}
+
+// Regression guard for finding 3: the help cheat sheet used to be a fourth
+// hand-copied command list with no link to the registry. This asserts the
+// set of commands the cheat sheet derives its "cc-session ..." string from
+// exactly matches the registry's non-hidden, hinted commands, so adding a
+// registry subcommand without a matching cheat-sheet row (or vice versa)
+// turns this test red.
+func TestCheatSheet_GivenRegistry_ThenCoversExactlyNonHiddenHintedCommands(t *testing.T) {
+	want := map[string]bool{}
+	for _, cmd := range commands {
+		if cmd.hidden || cmd.argHint == "" {
+			continue
+		}
+		want[cmd.name] = true
+	}
+
+	got := map[string]bool{}
+	for _, row := range cheatSheet {
+		if row.cmdName == "" {
+			continue
+		}
+		got[row.cmdName] = true
+	}
+
+	for name := range want {
+		if !got[name] {
+			t.Errorf("cheatSheet has no row deriving from registry command %q", name)
+		}
+	}
+	for name := range got {
+		if !want[name] {
+			t.Errorf("cheatSheet row references %q, which is hidden or has no argHint in the registry", name)
+		}
+	}
+}
+
+// argumentHintFromSkillMD extracts the "argument-hint: ..." frontmatter
+// value from SKILL.md's raw content, stripping the surrounding quotes. It
+// trims a trailing "\r" off each line first, since a Windows checkout
+// converts this repo's LF line endings to CRLF and strings.Split(content,
+// "\n") would otherwise leave "\r" attached to the line (and thus inside
+// the trimmed value). Returns false if no argument-hint line is found.
+func argumentHintFromSkillMD(content string) (string, bool) {
+	const linePrefix = "argument-hint: "
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.HasPrefix(line, linePrefix) {
+			return strings.Trim(strings.TrimPrefix(line, linePrefix), `"`), true
+		}
+	}
+	return "", false
+}
+
+// Regression guard for finding 4: SKILL.md's argument-hint frontmatter is a
+// hand-written literal with no compiler-enforced link to buildArgumentHint.
+// This asserts it matches verbatim, so a registry change that isn't synced
+// into SKILL.md turns this test red instead of silently drifting.
+func TestSkillMD_GivenArgumentHintFrontmatter_ThenMatchesBuildArgumentHint(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read SKILL.md: %v", err)
+	}
+
+	got, ok := argumentHintFromSkillMD(string(data))
+	if !ok {
+		t.Fatal("SKILL.md frontmatter has no argument-hint line")
+	}
+
+	want := buildArgumentHint()
+	if got != want {
+		t.Fatalf("SKILL.md argument-hint = %q, want %q (buildArgumentHint output); sync SKILL.md's frontmatter with the registry", got, want)
+	}
+}
+
+// Regression: on a Windows CI runner, the checkout's CRLF line endings left
+// "\r" attached to each split line, so the closing-quote trim never matched
+// (e.g. `"read <id>"` + "\r" stayed as `read <id>"` + "\r" instead of
+// `read <id>`). Feeds a CRLF frontmatter line directly so this is verified
+// on any OS instead of depending on the checkout's actual line endings.
+func TestArgumentHintFromSkillMD_GivenCRLFLineEndings_ThenStripsCarriageReturn(t *testing.T) {
+	content := "---\r\nargument-hint: \"read <id>\"\r\n---\r\n"
+
+	got, ok := argumentHintFromSkillMD(content)
+	if !ok {
+		t.Fatal("argumentHintFromSkillMD ok = false, want true")
+	}
+	if got != "read <id>" {
+		t.Fatalf("argumentHintFromSkillMD = %q, want %q", got, "read <id>")
+	}
+}
+
+func TestFindCommand_GivenInjectName_ThenReturnsHiddenButDispatchable(t *testing.T) {
+	cmd, ok := findCommand("inject")
+	if !ok {
+		t.Fatal("findCommand(\"inject\") = not found, want the deprecated alias to remain dispatchable")
+	}
+	if !cmd.hidden {
+		t.Fatal("findCommand(\"inject\").hidden = false, want true so it stays out of usage/help/argument-hint")
+	}
+}
+
+func TestFindCommand_GivenUnknownName_ThenReturnsNotFound(t *testing.T) {
+	if _, ok := findCommand("no-such-command"); ok {
+		t.Fatal("findCommand(\"no-such-command\") = found, want not found")
+	}
+}
+
+// Guards against regression where exitOnError would print "Error: <nil>" or
+// "Error: flag: help requested" to stderr instead of being silent.
+func TestExitOnError_GivenNil_ThenNoStderrOutput(t *testing.T) {
+	old := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	exitOnError(nil)
+	w.Close()
+	os.Stderr = old
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	if buf.Len() > 0 {
+		t.Fatalf("exitOnError(nil) wrote to stderr: %q", buf.String())
+	}
+}
+
+// Guards against regression where exitOnError would print the ErrHelp message.
+func TestExitOnError_GivenErrHelp_ThenNoStderrOutput(t *testing.T) {
+	old := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	exitOnError(flag.ErrHelp)
+	w.Close()
+	os.Stderr = old
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	if buf.Len() > 0 {
+		t.Fatalf("exitOnError(flag.ErrHelp) wrote to stderr: %q", buf.String())
+	}
+}
+
+// usageTestCallerSession creates a fake Claude Code session under root so
+// DetectCallerSession(cwd) returns non-empty, the precondition finalizeUsageLog
+// checks before writing any entry.
+func usageTestCallerSession(t *testing.T, root string) {
+	t.Helper()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = resolved
+	}
+	projectDir := filepath.Join(root, ".claude", "projects", tracker.ProjectDirName(cwd))
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "fake-session-id.jsonl"), []byte{}, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+}
+
+func TestFinalizeUsageLog_GivenNoUsageEnabled_ThenDoesNotWriteToLog(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("CC_SESSION_NO_USAGE", "1")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	config.Reset()
+	t.Cleanup(config.Reset)
+
+	beginUsageTracking("read")
+	logUsageAsync("read", "abc12345")
+	finalizeUsageLog(nil)
+	waitUsageLog()
+
+	usagePath := filepath.Join(root, ".claude", "skills", "cc-session", "usage.jsonl")
+	if _, err := os.Stat(usagePath); err == nil {
+		t.Error("usage.jsonl was created despite CC_SESSION_NO_USAGE=1")
+	}
+}
+
+func TestFinalizeUsageLog_GivenNoCallerSession_ThenDoesNotWriteToLog(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("CC_SESSION_NO_USAGE", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	config.Reset()
+	t.Cleanup(config.Reset)
+
+	// No Claude Code project directory created, so DetectCallerSession returns "".
+	beginUsageTracking("read")
+	logUsageAsync("read", "abc12345")
+	finalizeUsageLog(nil)
+	waitUsageLog()
+
+	usagePath := filepath.Join(root, ".claude", "skills", "cc-session", "usage.jsonl")
+	if _, err := os.Stat(usagePath); err == nil {
+		t.Error("usage.jsonl was created despite no caller session")
+	}
+}
+
+func TestFinalizeUsageLog_GivenNoBeginUsageTracking_ThenDoesNotWriteToLog(t *testing.T) {
+	// Regression: "help"/"usage" never call beginUsageTracking, so their
+	// exitOnError call must stay a no-op instead of logging a bogus entry.
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("CC_SESSION_NO_USAGE", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	config.Reset()
+	t.Cleanup(config.Reset)
+	usageTestCallerSession(t, root)
+
+	finalizeUsageLog(nil)
+	waitUsageLog()
+
+	usagePath := filepath.Join(root, ".claude", "skills", "cc-session", "usage.jsonl")
+	if _, err := os.Stat(usagePath); err == nil {
+		t.Error("usage.jsonl was created despite no tracked command")
+	}
+}
+
+func TestFinalizeUsageLog_GivenSuccessfulCommand_ThenRecordsOkResult(t *testing.T) {
+	// DetectCallerSession uses forward-slash path mapping that only works on
+	// macOS/Linux where Claude Code actually creates session files.
+	if runtime.GOOS == "windows" {
+		t.Skip("Claude Code sessions only exist on macOS/Linux")
+	}
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("CC_SESSION_NO_USAGE", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	config.Reset()
+	t.Cleanup(config.Reset)
+	usageTestCallerSession(t, root)
+
+	beginUsageTracking("read")
+	logUsageAsync("read", "abc12345")
+	finalizeUsageLog(nil)
+	waitUsageLog()
+
+	usagePath := filepath.Join(root, ".claude", "skills", "cc-session", "usage.jsonl")
+	data, err := os.ReadFile(usagePath)
+	if err != nil {
+		t.Fatalf("usage.jsonl not created: %v", err)
+	}
+	line := strings.TrimSpace(string(data))
+	if !strings.Contains(line, `"cmd":"read"`) {
+		t.Errorf("usage.jsonl missing cmd field, got: %s", line)
+	}
+	if !strings.Contains(line, `"target":"abc12345"`) {
+		t.Errorf("usage.jsonl missing target field, got: %s", line)
+	}
+	if !strings.Contains(line, `"result":"ok"`) {
+		t.Errorf("usage.jsonl missing result:ok, got: %s", line)
+	}
+	if strings.Contains(line, `"error"`) {
+		t.Errorf("usage.jsonl should omit error field on success, got: %s", line)
+	}
+}
+
+// Bug this guards against: a command that failed before ever resolving a
+// target (e.g. "read" given an unknown session ID) used to log nothing at
+// all, so failures were invisible in usage.jsonl. beginUsageTracking starts
+// tracking before the command's own logic runs, so this now produces an
+// entry with an empty target and result:error.
+func TestFinalizeUsageLog_GivenCommandFailedBeforeResolvingTarget_ThenRecordsErrorResultWithEmptyTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Claude Code sessions only exist on macOS/Linux")
+	}
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("CC_SESSION_NO_USAGE", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	config.Reset()
+	t.Cleanup(config.Reset)
+	usageTestCallerSession(t, root)
+
+	// Simulate main's dispatch starting tracking, then the command failing
+	// (e.g. resolveSession erroring) before it ever calls logUsageAsync.
+	beginUsageTracking("read")
+	finalizeUsageLog(fmt.Errorf("transcript not found: no-such-session-id"))
+	waitUsageLog()
+
+	usagePath := filepath.Join(root, ".claude", "skills", "cc-session", "usage.jsonl")
+	data, err := os.ReadFile(usagePath)
+	if err != nil {
+		t.Fatalf("usage.jsonl not created: %v", err)
+	}
+	line := strings.TrimSpace(string(data))
+	if !strings.Contains(line, `"cmd":"read"`) {
+		t.Errorf("usage.jsonl missing cmd field, got: %s", line)
+	}
+	if !strings.Contains(line, `"target":""`) {
+		t.Errorf("usage.jsonl should record an empty target (never resolved), got: %s", line)
+	}
+	if !strings.Contains(line, `"result":"error"`) {
+		t.Errorf("usage.jsonl missing result:error, got: %s", line)
+	}
+	if !strings.Contains(line, `"error":"transcript not found: no-such-session-id"`) {
+		t.Errorf("usage.jsonl missing error message, got: %s", line)
+	}
+}
+
+func TestFinalizeUsageLog_GivenMultilineError_ThenTruncatesToFirstLine(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Claude Code sessions only exist on macOS/Linux")
+	}
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("CC_SESSION_NO_USAGE", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	config.Reset()
+	t.Cleanup(config.Reset)
+	usageTestCallerSession(t, root)
+
+	beginUsageTracking("stats")
+	finalizeUsageLog(fmt.Errorf("count filtered tokens: boom\nrequest id: abc"))
+	waitUsageLog()
+
+	usagePath := filepath.Join(root, ".claude", "skills", "cc-session", "usage.jsonl")
+	data, err := os.ReadFile(usagePath)
+	if err != nil {
+		t.Fatalf("usage.jsonl not created: %v", err)
+	}
+	line := strings.TrimSpace(string(data))
+	if !strings.Contains(line, `"error":"count filtered tokens: boom"`) {
+		t.Errorf("usage.jsonl error field should be truncated to the first line, got: %s", line)
+	}
+	if strings.Contains(line, "request id") {
+		t.Errorf("usage.jsonl error field leaked a second line, got: %s", line)
+	}
+}
+
+func TestFinalizeUsageLog_GivenErrHelp_ThenDoesNotWriteToLog(t *testing.T) {
+	// A "-h" request is a deliberate UX flow, not a command failure — it
+	// shouldn't show up as a tracked error.
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("CC_SESSION_NO_USAGE", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	config.Reset()
+	t.Cleanup(config.Reset)
+	usageTestCallerSession(t, root)
+
+	beginUsageTracking("read")
+	finalizeUsageLog(flag.ErrHelp)
+	waitUsageLog()
+
+	usagePath := filepath.Join(root, ".claude", "skills", "cc-session", "usage.jsonl")
+	if _, err := os.Stat(usagePath); err == nil {
+		t.Error("usage.jsonl was created for a flag.ErrHelp invocation")
+	}
+}
+
+func TestResolveVersion_GivenLdflagsVersion_ThenReturnsItUnchanged(t *testing.T) {
+	// ldflags -X main.version=... (goreleaser) always takes priority over
+	// build-info fallback.
+	got := resolveVersion("v1.2.3")
+	if got != "v1.2.3" {
+		t.Errorf("resolveVersion(%q) = %q, want unchanged", "v1.2.3", got)
+	}
+}
+
+func TestResolveVersion_GivenDevWithModuleVersion_ThenReturnsModuleVersion(t *testing.T) {
+	old := readBuildInfo
+	t.Cleanup(func() { readBuildInfo = old })
+	readBuildInfo = func() (*debug.BuildInfo, bool) {
+		return &debug.BuildInfo{Main: debug.Module{Version: "v0.5.0"}}, true
+	}
+
+	got := resolveVersion("dev")
+	if got != "v0.5.0" {
+		t.Errorf("resolveVersion(\"dev\") = %q, want %q (go install pkg@version)", got, "v0.5.0")
+	}
+}
+
+func TestResolveVersion_GivenDevWithNoModuleVersionButVCSRevision_ThenReturnsShortRevision(t *testing.T) {
+	old := readBuildInfo
+	t.Cleanup(func() { readBuildInfo = old })
+	readBuildInfo = func() (*debug.BuildInfo, bool) {
+		return &debug.BuildInfo{
+			Main: debug.Module{Version: "(devel)"},
+			Settings: []debug.BuildSetting{
+				{Key: "vcs.revision", Value: "95712a4abcdef1234567890"},
+			},
+		}, true
+	}
+
+	got := resolveVersion("dev")
+	if got != "dev+95712a4abcde" {
+		t.Errorf("resolveVersion(\"dev\") = %q, want short vcs revision fallback", got)
+	}
+}
+
+func TestResolveVersion_GivenDevWithNoBuildInfo_ThenReturnsDevUnchanged(t *testing.T) {
+	old := readBuildInfo
+	t.Cleanup(func() { readBuildInfo = old })
+	readBuildInfo = func() (*debug.BuildInfo, bool) { return nil, false }
+
+	got := resolveVersion("dev")
+	if got != "dev" {
+		t.Errorf("resolveVersion(\"dev\") = %q, want %q when build info is unavailable", got, "dev")
+	}
+}

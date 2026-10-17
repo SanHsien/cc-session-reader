@@ -1,0 +1,94 @@
+name: Upstream check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/check_upstream_updates.py
+      - tools/upstream_baseline.json
+      - .github/workflows/upstream-check.yml
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-check
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Check upstream
+        id: upstream
+        continue-on-error: true
+        shell: bash
+        run: |
+          python tools/check_upstream_updates.py \
+            --strict \
+            --github-output \
+            --output upstream-review-report.md
+
+      - name: Publish report
+        if: always()
+        shell: bash
+        run: cat upstream-review-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update upstream review issue
+        if: steps.upstream.outputs.has_updates == 'true'
+        shell: bash
+        run: |
+          # 沿用同一個 issue，避免每週開一張新的把列表淹掉
+          issue_json="$(gh issue list \
+            --state all \
+            --search '上游更新檢查 in:title' \
+            --json number,state \
+            --jq '.[0] // {}')"
+          issue="$(echo "$issue_json" | jq -r '.number // empty')"
+          if [ -n "$issue" ]; then
+            if [ "$(echo "$issue_json" | jq -r '.state')" = "CLOSED" ]; then
+              gh issue reopen "$issue"
+            fi
+            gh issue edit "$issue" --body-file upstream-review-report.md
+          else
+            gh issue create \
+              --title "上游更新檢查：有新 release / commit 待審視" \
+              --body-file upstream-review-report.md
+          fi
+
+      - name: Close upstream review issue when caught up
+        if: steps.upstream.outputs.has_updates == 'false'
+        shell: bash
+        run: |
+          issue="$(gh issue list --state open --search '上游更新檢查 in:title' --json number --jq '.[0].number // empty')"
+          if [ -n "$issue" ]; then
+            gh issue close "$issue" --comment "本次排程檢查輸出 has_updates=false：已無待審視的上游項目，自動關閉。"
+          fi
+
+      - name: Require review when upstream changed
+        if: steps.upstream.outcome == 'failure' || steps.upstream.outputs.has_updates == 'true'
+        shell: bash
+        run: |
+          echo "::error::Upstream changed or the check failed. Review the workflow summary or issue."
+          exit 1

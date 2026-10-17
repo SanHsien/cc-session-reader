@@ -1,0 +1,11 @@
+{
+  "repo": "https://github.com/Mapleeeeeeeeeee/cc-session-reader.git",
+  "branch": "main",
+  "reviewed_through": "7a60e5ce4a2be191db2f93bdd6caec8696cd0639",
+  "reviewed_release": "v0.1.82",
+  "reviewed_date": "2026-10-18",
+  "reviewed_pr_through": 19,
+  "reviewed_issue_through": 0,
+  "track": "release",
+  "decision_log": "docs/fork/DECISIONS.md"
+}
