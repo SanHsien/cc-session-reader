@@ -74,6 +74,23 @@ Claude Desktop custom Skills require a manual account-level upload at **Customiz
 | `stats` | Show character and token distribution | `cc-session stats <id>` |
 | `ui` | Launch terminal interactive user interface (TUI) | `cc-session ui` |
 
+### Terminal Interactive UI (TUI) User Guide
+
+Launch by double-clicking `cc-session.exe` or running `cc-session ui` (or running without arguments in an interactive terminal):
+
+- **Session-Centric Workspace**: Directly displays recent sessions on startup, eliminating the need to look up and copy-paste session IDs.
+- **Arrow Key Navigation**: Use `↑ / ↓` or `j / k` to move the cursor directly to any session.
+- **One-Key Actions on Selected Session**:
+  - `[Enter]`: Read and compress conversation history (read).
+  - `[C]`: Generate compact Context header for the session (context).
+  - `[S]`: View character and token distribution stats (stats).
+  - `[Y]`: Copy session ID directly to Windows clipboard.
+  - `[B]`: Run compaction benchmark & cost evaluation (benchmark).
+  - `[M]`: Manually input an older or custom Session ID.
+  - `[Q / Esc]`: Exit application.
+- **Streaming Pager & Halfway Jump-Out**: Long sessions stream in pages; **press `q` or `Esc` anytime during reading to immediately abort and return to the session list**.
+- **Scrollback Preserved**: Uses stream append mode like Agent TUIs without screen clearing, preserving terminal scrollback history.
+
 ## Development and verification
 
 ```powershell
