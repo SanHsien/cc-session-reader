@@ -42,6 +42,10 @@ func runInteractiveMenu(reader claudecodec.Codec) {
 	inReader := bufio.NewReader(os.Stdin)
 	store := parser.DefaultStoreWith(reader)
 
+	fmt.Println("============================================================")
+	fmt.Printf("  cc-session Reader %s - 終端互動面板 (TUI)\n", version)
+	fmt.Println("============================================================")
+
 	for {
 		var choice string
 		if isInteractiveTerminal() {
@@ -78,29 +82,25 @@ func runInteractiveMenu(reader claudecodec.Codec) {
 }
 
 func selectMenuNonInteractive(in *bufio.Reader, items []menuItem) string {
-	fmt.Println("\n============================================================")
-	fmt.Printf("  cc-session Reader %s - 終端互動面板 (TUI)\n", version)
-	fmt.Println("============================================================")
+	fmt.Println("\n------------------------------------------------------------")
 	for _, it := range items {
 		fmt.Printf("   [%s] %s\n", it.key, it.label)
 	}
 	fmt.Println("------------------------------------------------------------")
-	fmt.Print("請選擇操作 > ")
+	fmt.Print("請選擇操作 [1-6, 0] > ")
 	return readLine(in)
 }
 
 func selectMenuInteractive(in *bufio.Reader, items []menuItem) string {
-	fmt.Println("\n============================================================")
-	fmt.Printf("  cc-session Reader %s - 終端互動面板 (TUI)\n", version)
-	fmt.Println("============================================================")
-	fmt.Println(" 使用 [↑ / ↓] 或 [j / k] 移動游標，[Enter] 確認，或直接按快捷鍵 [1-6, 0]：")
+	fmt.Println("\n------------------------------------------------------------")
 
 	selected := 0
 	numItems := len(items)
+	totalRenderLines := numItems + 2
 
 	render := func(initial bool) {
 		if !initial {
-			fmt.Printf("\033[%dA", numItems)
+			fmt.Printf("\033[%dA", totalRenderLines)
 		}
 		for i, it := range items {
 			prefix := "    "
@@ -113,6 +113,8 @@ func selectMenuInteractive(in *bufio.Reader, items []menuItem) string {
 			}
 			fmt.Printf("\033[2K\r%s[%s] %s%s\n", prefix, it.key, colorStart+it.label+colorEnd, "")
 		}
+		fmt.Printf("\033[2K\r------------------------------------------------------------\n")
+		fmt.Printf("\033[2K\r 使用 [↑ / ↓] 或 [j / k] 移動游標，[Enter] 確認，或按快捷鍵 [1-6, 0]\n")
 	}
 
 	render(true)
@@ -211,12 +213,11 @@ func handleListInteractive(in *bufio.Reader, store parser.Store, reader claudeco
 		return
 	}
 
-	fmt.Println(" 使用 [↑ / ↓] 選擇會話，[Enter] 直接讀取，[Esc / b] 返回主選單：")
-
 	selected := 0
+	totalRenderLines := limit + 2
 	renderList := func(initial bool) {
 		if !initial {
-			fmt.Printf("\033[%dA", limit)
+			fmt.Printf("\033[%dA", totalRenderLines)
 		}
 		for i := 0; i < limit; i++ {
 			entry := entries[i]
@@ -248,6 +249,8 @@ func handleListInteractive(in *bufio.Reader, store parser.Store, reader claudeco
 				prefix, i+1, colorStart, entry.SessionID, dateStr, projectName, entry.DurationMinutes,
 				entry.UserMessageCount, entry.AssistantMessageCount, refMarker, prompt, colorEnd)
 		}
+		fmt.Printf("\033[2K\r--------------------------------------------------------------------------------\n")
+		fmt.Printf("\033[2K\r 使用 [↑ / ↓] 選擇會話，[Enter] 直接讀取，[Esc / b] 返回主選單\n")
 	}
 
 	renderList(true)
