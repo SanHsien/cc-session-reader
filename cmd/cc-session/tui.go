@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -296,11 +295,10 @@ func handleListInteractive(in *bufio.Reader, store parser.Store, reader claudeco
 
 func handleReadInteractive(in *bufio.Reader, store parser.Store, reader claudecodec.Codec) {
 	fmt.Println("\n==> 讀取並壓縮指定會話 (cc-session read)")
-	fmt.Println("提示: 可輸入完整 Session ID 或前綴（如 e61060b1），輸入 'b' 返回")
-	fmt.Print("請輸入 Session ID > ")
+	fmt.Print("請輸入 Session ID（輸入 'q' / 'b' 或直接按 Enter 跳出返回）> ")
 
 	id := strings.TrimSpace(readLine(in))
-	if id == "" || strings.EqualFold(id, "b") {
+	if id == "" || strings.EqualFold(id, "b") || strings.EqualFold(id, "q") {
 		return
 	}
 
@@ -312,36 +310,61 @@ func readAndDisplaySession(in *bufio.Reader, sessionID string, store parser.Stor
 	fmt.Println("================================================================================")
 
 	var buf bytes.Buffer
-	multiOut := io.MultiWriter(os.Stdout, &buf)
-
-	err := runRead([]string{sessionID}, multiOut, os.Stderr, store, reader)
-	fmt.Println("================================================================================")
+	err := runRead([]string{sessionID}, &buf, os.Stderr, store, reader)
 	if err != nil {
+		fmt.Println("================================================================================")
 		fmt.Printf("[錯誤] 讀取失敗: %v\n", err)
 		return
 	}
 
+	completed := displayWithPaging(in, buf.String())
+	fmt.Println("================================================================================")
+	if !completed {
+		return
+	}
+
 	for {
-		fmt.Print("\n[快捷操作] 按 [C] 複製完整內容至剪貼簿  |  按 [Enter] 返回主選單 > ")
-		act := strings.ToLower(strings.TrimSpace(readLine(in)))
-		if act == "c" {
-			if err := copyToClipboard(buf.String()); err != nil {
-				fmt.Printf("剪貼簿複製失敗: %v\n", err)
-			} else {
-				fmt.Println("已成功複製完整壓縮內容至剪貼簿！")
+		fmt.Print("\n[快捷操作] 按 [C] 複製完整內容至剪貼簿  |  按 [Enter / Esc / q] 返回主選單 > ")
+		if isInteractiveTerminal() {
+			ev := readKeyInteractive()
+			if ev.kind == keyEscape || ev.kind == keyEnter {
+				fmt.Println("")
+				break
+			}
+			if ev.kind == keyRune {
+				ch := strings.ToLower(string(ev.char))
+				if ch == "c" {
+					if err := copyToClipboard(buf.String()); err != nil {
+						fmt.Printf("\n剪貼簿複製失敗: %v\n", err)
+					} else {
+						fmt.Println("\n已成功複製完整壓縮內容至剪貼簿！")
+					}
+				} else if ch == "q" || ch == "b" {
+					fmt.Println("")
+					break
+				}
 			}
 		} else {
-			break
+			act := strings.ToLower(strings.TrimSpace(readLine(in)))
+			if act == "c" {
+				if err := copyToClipboard(buf.String()); err != nil {
+					fmt.Printf("剪貼簿複製失敗: %v\n", err)
+				} else {
+					fmt.Println("已成功複製完整壓縮內容至剪貼簿！")
+				}
+			} else {
+				break
+			}
 		}
 	}
 }
 
 func handleContextInteractive(in *bufio.Reader, store parser.Store, reader claudecodec.Codec) {
 	fmt.Println("\n==> 產生精簡 Context 標頭格式 (cc-session context)")
-	fmt.Print("請輸入 Session ID（輸入 'b' 返回）> ")
+	fmt.Print("請輸入 Session ID（輸入 'q' / 'b' 或直接按 Enter 跳出返回）> ")
 
 	id := strings.TrimSpace(readLine(in))
-	if id == "" || strings.EqualFold(id, "b") {
+	if id == "" || strings.EqualFold(id, "b") || strings.EqualFold(id, "q") {
 		return
 	}
 
@@ -349,28 +372,111 @@ func handleContextInteractive(in *bufio.Reader, store parser.Store, reader claud
 	fmt.Println("================================================================================")
 
 	var buf bytes.Buffer
-	multiOut := io.MultiWriter(os.Stdout, &buf)
-
-	err := runContext([]string{id}, multiOut, os.Stderr, store, reader)
-	fmt.Println("================================================================================")
+	err := runContext([]string{id}, &buf, os.Stderr, store, reader)
 	if err != nil {
+		fmt.Println("================================================================================")
 		fmt.Printf("[錯誤] 產生失敗: %v\n", err)
 		return
 	}
 
+	completed := displayWithPaging(in, buf.String())
+	fmt.Println("================================================================================")
+	if !completed {
+		return
+	}
+
 	for {
-		fmt.Print("\n[快捷操作] 按 [C] 複製至剪貼簿  |  按 [Enter] 返回主選單 > ")
-		act := strings.ToLower(strings.TrimSpace(readLine(in)))
-		if act == "c" {
-			if err := copyToClipboard(buf.String()); err != nil {
-				fmt.Printf("剪貼簿複製失敗: %v\n", err)
-			} else {
-				fmt.Println("已成功複製至剪貼簿！")
+		fmt.Print("\n[快捷操作] 按 [C] 複製至剪貼簿  |  按 [Enter / Esc / q] 返回主選單 > ")
+		if isInteractiveTerminal() {
+			ev := readKeyInteractive()
+			if ev.kind == keyEscape || ev.kind == keyEnter {
+				fmt.Println("")
+				break
+			}
+			if ev.kind == keyRune {
+				ch := strings.ToLower(string(ev.char))
+				if ch == "c" {
+					if err := copyToClipboard(buf.String()); err != nil {
+						fmt.Printf("\n剪貼簿複製失敗: %v\n", err)
+					} else {
+						fmt.Println("\n已成功複製至剪貼簿！")
+					}
+				} else if ch == "q" || ch == "b" {
+					fmt.Println("")
+					break
+				}
 			}
 		} else {
-			break
+			act := strings.ToLower(strings.TrimSpace(readLine(in)))
+			if act == "c" {
+				if err := copyToClipboard(buf.String()); err != nil {
+					fmt.Printf("剪貼簿複製失敗: %v\n", err)
+				} else {
+					fmt.Println("已成功複製至剪貼簿！")
+				}
+			} else {
+				break
+			}
 		}
 	}
+}
+
+func displayWithPaging(in *bufio.Reader, text string) bool {
+	lines := strings.Split(text, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	total := len(lines)
+	pageSize := 30
+
+	if total <= pageSize || !isInteractiveTerminal() {
+		for _, line := range lines {
+			fmt.Println(line)
+		}
+		return true
+	}
+
+	current := 0
+	showAll := false
+
+	for current < total {
+		end := current + pageSize
+		if end > total {
+			end = total
+		}
+
+		for i := current; i < end; i++ {
+			fmt.Println(lines[i])
+		}
+		current = end
+
+		if current >= total || showAll {
+			break
+		}
+
+		fmt.Printf("\n-- 閱讀中 (%d/%d 行) -- [Enter/Space/↓] 繼續閱讀  |  [q/Esc] 中途跳出  |  [a] 全部顯示 > ", current, total)
+
+		ev := readKeyInteractive()
+		switch ev.kind {
+		case keyEscape:
+			fmt.Println("\n[已中途跳出，返回主選單]")
+			return false
+		case keyDown, keyEnter:
+			// continue to next chunk
+		case keyRune:
+			ch := strings.ToLower(string(ev.char))
+			switch ch {
+			case "q", "b":
+				fmt.Println("\n[已中途跳出，返回主選單]")
+				return false
+			case "a":
+				showAll = true
+			}
+		}
+		fmt.Println("")
+	}
+	return true
 }
 
 func handleBenchmarkInteractive(in *bufio.Reader, store parser.Store, reader claudecodec.Codec) {
@@ -388,10 +494,10 @@ func handleBenchmarkInteractive(in *bufio.Reader, store parser.Store, reader cla
 
 func handleStatsInteractive(in *bufio.Reader, store parser.Store, reader claudecodec.Codec) {
 	fmt.Println("\n==> 會話字元與 Token 分佈統計 (cc-session stats)")
-	fmt.Print("請輸入 Session ID（輸入 'b' 返回）> ")
+	fmt.Print("請輸入 Session ID（輸入 'q' / 'b' 或直接按 Enter 跳出返回）> ")
 
 	id := strings.TrimSpace(readLine(in))
-	if id == "" || strings.EqualFold(id, "b") {
+	if id == "" || strings.EqualFold(id, "b") || strings.EqualFold(id, "q") {
 		return
 	}
 
@@ -420,6 +526,13 @@ func readLine(in *bufio.Reader) string {
 }
 
 func waitForEnter(in *bufio.Reader) {
+	if isInteractiveTerminal() {
+		fmt.Print("\n請按 [Enter / Esc / q] 返回主選單...")
+		ev := readKeyInteractive()
+		_ = ev
+		fmt.Println("")
+		return
+	}
 	fmt.Print("\n請按 Enter 鍵返回...")
 	_, _ = in.ReadString('\n')
 }
