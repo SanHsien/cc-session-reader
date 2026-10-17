@@ -31,6 +31,16 @@ Scanning the combined main-session and subagent corpus found three more forms:
 - `[Your previous response had no visible output. Please continue and produce a user-visible response.]`: 36 exact main-session messages. Compress to `[nudge: no visible output]` and count it as a turn because it requests a new response.
 - `The user sent a new message while you were working:` plus explanatory wrapper: 35 entries. Preserve the human body with a `user:` label, strip the harness wrapper, and do not count a new turn because the wrapper explicitly says it arrived during an existing turn.
 
+## 2026-09-23 Addendum (2.1.257–2.1.278)
+
+- The two-stage workflow frames are entries 1 and 2 of each workflow agent transcript, with no assistant message between them. Prior to the fix, both counted as turns, doubling the first turn count. Neither has `promptSource`, `origin`, or `isMeta`; detection matches the prefix directly.
+- `[structured-output-enforce]` (8 occurrences prior to 09-02) belongs to the same family as `[handback-send-enforce]`; both are compressed to `[nudge: structured output]`. Matching focuses on square-bracket tags rather than following prose.
+- `Stop hook feedback:\n[<condition>]: <evaluation>` (74 entries around 09-02; initiates turn 15/16) is compressed to `[goal feedback]` + body, counting as a turn.
+- Singular `Background agent "<description>" was stopped by the user.` was missed by `^(\d+) background agents?`. Both carry `promptSource=system`; `CountsAsTurn()` returns false early for agents-stopped notifications as an exception to ADR-009.
+- Teammate messages added a `[Subagent hand-back] … The report follows:` preamble (69 entries from 2.1.271 onwards); `CompactTeammateMessage` strips the preamble and indents the report.
+- `fork-context-ref` entry type (8 entries post 09-02) is merged into the decision-1 allowlist.
+- Compaction continuations prepended with `<artifact-content-authored-by-others/>` (2.1.274) are addressed in decision 7.
+
 ## 1. `noiseTypes` missed eight entry types added later by the CLI
 
 `noiseTypes` is a handwritten allowlist containing 13 types. Eight observed types were missing:
@@ -161,7 +171,25 @@ Decision: extend the reader's existing tool-use ID map to record Skill `skill` a
 
 This is another instance of decision 2: the harness already supplied a structural field while the reader still matched prose. Teammate messages lack an equivalent field, so decision 4 must continue matching structural tags in text.
 
+After 2026-09, some teammate messages include `origin.kind=peer`, but coverage is low (83 of 1,370 post-09-02 messages), so it cannot yet replace tag matching.
+
+## 7. Compaction continuation detection was defeated by matching order
+
+`classifyHarnessUserMessage` previously searched for teammate tags and `<task-notification>` via `Contains` before checking compaction continuations with `HasPrefix`. When summary prose quoted teammate tags or notifications, the message was misclassified (3 misclassifications across 37 compaction continuations post 09-02):
+
+| session | CLI | Cause | Result |
+|---|---|---|---|
+| `9fb49e85` | 2.1.274 | Prepended with `<artifact-content-authored-by-others/>` | Prefix missed; rendered as full `user:` |
+| `b566530e` | 2.1.257 | Body quotes teammate tags | Classified as teammate, missing `[compaction summary]` header |
+| `e04de0c1` | 2.1.265 | Body quotes `<task-notification>` | Classified as task-notification, same as above |
+
+All 37 entries carry a top-level `isCompactSummary: true`. Decision: the reader inspects this structural field first; the text prefix remains as a fallback for older transcripts.
+
 ## Not resolved
+
+**`turnCompanion` is not yet used for turn decisions.** 381 entries post-09-02 carry `turnCompanion: true`, indicating they do not initiate an interaction turn. Integrating this requires reconciling with ADR-009.
+
+**`turnOrigin` is not yet used.** Present from 2.1.278 onwards (`human`, `sdk`, `task_notification`, `peer`), marking who initiated the turn rather than who wrote the entry.
 
 **Slash and bang commands still do not count as turns.** A slash command such as `/goal` starts work but appears as three entries: a command-name marker, command-message injection, and sometimes a skill body. A future decision must select exactly one representative entry. Bang commands do not start API turns and cannot share the same rule.
 

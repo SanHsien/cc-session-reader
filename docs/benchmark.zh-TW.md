@@ -37,7 +37,7 @@ cc-session benchmark --overhead <你的數值>
 | `--days` | 30 | 回溯 session 的天數 |
 | `--min-kb` | 100 | JSONL 最小檔案大小（KB） |
 | `--n` | 10 | 最多回報幾個成功結果 |
-| `--model` | opus | 定價與 token counting 模型：`opus`、`opus-4-6`、`opus-4-7`、`opus-4-8`、`sonnet` 或 `fable`（`fable-5-1`） |
+| `--model` | opus | 定價與 token counting 模型：`opus`（`opus-5-5`）、`opus-4-6`、`opus-4-7`、`opus-4-8`、`sonnet`（`sonnet-5-5`）、`sonnet-4-6` 或 `fable`（`fable-5-1`） |
 
 ### 輸出範例
 
