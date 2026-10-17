@@ -27,3 +27,4 @@
 - **PE 原生 App 圖示內嵌**：設計專屬多尺寸向量/圖素圖示 (`assets/icon.png`、`assets/icon.ico` 涵蓋 16~256px)，並透過 `.syso` 嵌入 Windows PE resource 段，使編譯執行檔具備原生現代化應用程式圖示。
 - **獨立 Console 雙擊防閃退機制**：透過 Windows API `GetConsoleProcessList` 檢測是否由檔案總管雙擊建立獨立終端；若為雙擊且未帶參數或遇錯，自動進入 TUI 或提示暫停，徹底杜絕執行後閃退問題。
 - **輕量終端互動面板 (TUI)**：實作無額外 Webview/HTTP 負擔的零依賴 TUI（`ui` / `tui` 子命令，或無參數終端自動啟動），提供數字選單、最近會話序號讀取、格式化預覽、一鍵複製至系統剪貼簿 (`clip`) 等友善按鈕化體驗。
+- **Agent TUI 串流追加與方向鍵導航**：取消畫面清空行為，比照 Agent TUI 採用串流追加模式，完整保留終端歷史滾動條；並透過原生 Windows `msvcrt.dll` (`_getch`) 與 ANSI 局部游標回跳 (`\033[NA`)，支援 `↑ / ↓`、`j / k` 移動光棒游標、`Enter` 確認，且相容直接按數字鍵與管線非互動輸入。
