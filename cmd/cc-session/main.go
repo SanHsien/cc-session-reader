@@ -69,6 +69,7 @@ var newCountTokensFn = func(model string) (countTokensFunc, error) {
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
+		pauseIfAlone()
 		os.Exit(1)
 	}
 
@@ -91,6 +92,7 @@ func main() {
 		if !ok {
 			fmt.Fprintf(os.Stderr, "Unknown command: %s\n", subcommand)
 			printUsage()
+			pauseIfAlone()
 			os.Exit(1)
 		}
 		if cmd.tracksUsage {
