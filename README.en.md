@@ -72,6 +72,7 @@ Claude Desktop custom Skills require a manual account-level upload at **Customiz
 | `read` | Print the conversation and tool summaries | `cc-session read <id>` |
 | `expand` | Expand a specific tool call | `cc-session expand <id> <tool-id>` |
 | `stats` | Show character and token distribution | `cc-session stats <id>` |
+| `ui` | Launch terminal interactive user interface (TUI) | `cc-session ui` |
 
 ## Development and verification
 

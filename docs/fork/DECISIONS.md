@@ -21,3 +21,9 @@
 - **#19** (`7a60e5c`): 新增 `internal/models` 作為模型定價與別名的單一真實來源（Single Source of Truth, SSOT，Adopt）。
 - **雙語文檔同步**：全面補齊 `docs/benchmark.zh-TW.md` 與 `docs/adr-008-harness-event-drift.en.md` 鏡像。
 - **升版與單一 Tag 策略**：正式發布本 fork `v0.1.82`，並清理舊版 `v0.1.80` Release 與 Tag。
+
+## Windows 本地體驗強化（2026-10-18）
+
+- **PE 原生 App 圖示內嵌**：設計專屬多尺寸向量/圖素圖示 (`assets/icon.png`、`assets/icon.ico` 涵蓋 16~256px)，並透過 `.syso` 嵌入 Windows PE resource 段，使編譯執行檔具備原生現代化應用程式圖示。
+- **獨立 Console 雙擊防閃退機制**：透過 Windows API `GetConsoleProcessList` 檢測是否由檔案總管雙擊建立獨立終端；若為雙擊且未帶參數或遇錯，自動進入 TUI 或提示暫停，徹底杜絕執行後閃退問題。
+- **輕量終端互動面板 (TUI)**：實作無額外 Webview/HTTP 負擔的零依賴 TUI（`ui` / `tui` 子命令，或無參數終端自動啟動），提供數字選單、最近會話序號讀取、格式化預覽、一鍵複製至系統剪貼簿 (`clip`) 等友善按鈕化體驗。

@@ -72,6 +72,7 @@ Claude Desktop 的自訂 Skill 必須由使用者在 **Customize > Skills > + Cr
 | `read` | 顯示對話與工具摘要 | `cc-session read <id>` |
 | `expand` | 展開指定工具呼叫 | `cc-session expand <id> <tool-id>` |
 | `stats` | 統計字元與 Token 分布 | `cc-session stats <id>` |
+| `ui` | 啟動終端互動面板 (TUI) | `cc-session ui` |
 
 ## 開發與驗證
 

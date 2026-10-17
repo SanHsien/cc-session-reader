@@ -10,6 +10,9 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $repoRoot
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
+if (-not $env:GIT_CONFIG_GLOBAL) {
+    $env:GIT_CONFIG_GLOBAL = 'NUL'
+}
 
 function Assert-Utf8File {
     param([string]$Path)
@@ -99,7 +102,13 @@ Write-Host '  [OK] workflows and release configuration are Windows-only'
 
 Write-Host '==> Verifying local binary'
 $binPath = Join-Path $env:LOCALAPPDATA 'cc-session\cc-session.exe'
-if (Test-Path -LiteralPath $binPath) {
+$binExists = $false
+try {
+    $binExists = Test-Path -LiteralPath $binPath -ErrorAction Stop
+} catch {
+    $binExists = $false
+}
+if ($binExists) {
     & $binPath --help | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "cc-session --help failed with exit code $LASTEXITCODE" }
     Write-Host '  [OK] cc-session binary is runnable'
@@ -109,8 +118,14 @@ if (Test-Path -LiteralPath $binPath) {
 
 if (-not $Quick) {
     Write-Host '==> Running Go build and tests'
-    $go = Get-Command go -ErrorAction SilentlyContinue
+    $go = $null
+    try {
+        $go = Get-Command go -ErrorAction Stop
+    } catch {
+        $go = $null
+    }
     if (-not $go) { throw 'Go is required for the full development gate.' }
+    $env:GOFLAGS = '-buildvcs=false'
     & $go.Source test ./...
     if ($LASTEXITCODE -ne 0) { throw "go test failed with exit code $LASTEXITCODE" }
     & $go.Source build ./...
@@ -119,9 +134,15 @@ if (-not $Quick) {
 }
 
 Write-Host '==> Checking upstream baseline'
-if (Get-Command python -ErrorAction SilentlyContinue) {
+$py = $null
+try {
+    $py = Get-Command python -ErrorAction Stop
+} catch {
+    $py = $null
+}
+if ($py) {
     New-Item -ItemType Directory -Path dist -Force | Out-Null
-    python tools/check_upstream_updates.py --strict --output dist/upstream-review-report.md
+    & $py.Source tools/check_upstream_updates.py --strict --output dist/upstream-review-report.md
     if ($LASTEXITCODE -ne 0) { throw "Upstream check failed with exit code $LASTEXITCODE" }
 } else {
     Write-Warning 'Python not found, skipping check_upstream_updates.py'

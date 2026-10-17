@@ -128,6 +128,20 @@ func init() {
 			run: func(args []string, reader claudecodec.Codec) { cmdBenchmark(args, reader) },
 		},
 		{
+			name:        "ui",
+			summary:     "啟動終端互動面板 (TUI)",
+			tracksUsage: true,
+			// No argHint: ui is an interactive terminal mode, not part of
+			// the skill's quick-launch surface.
+			run: func(args []string, reader claudecodec.Codec) { cmdTUI(args, reader) },
+		},
+		{
+			name:        "tui",
+			hidden:      true,
+			tracksUsage: true,
+			run:         func(args []string, reader claudecodec.Codec) { cmdTUI(args, reader) },
+		},
+		{
 			name:        "inject",
 			hidden:      true,
 			tracksUsage: true,

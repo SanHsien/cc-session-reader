@@ -66,18 +66,29 @@ var newCountTokensFn = func(model string) (countTokensFunc, error) {
 	return counter.Count, nil
 }
 
+func isInteractiveTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
 func main() {
+	version = resolveVersion(version)
+	defer waitUsageLog()
+
+	reader := claudecodec.Codec{}
+
 	if len(os.Args) < 2 {
+		if isInteractiveTerminal() {
+			cmdTUI(nil, reader)
+			return
+		}
 		printUsage()
 		pauseIfAlone()
 		os.Exit(1)
 	}
-
-	version = resolveVersion(version)
-
-	defer waitUsageLog()
-
-	reader := claudecodec.Codec{}
 
 	subcommand := os.Args[1]
 	switch subcommand {
