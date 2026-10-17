@@ -25,8 +25,16 @@ func runInteractiveMenu(reader claudecodec.Codec) {
 	inReader := bufio.NewReader(os.Stdin)
 	store := parser.DefaultStoreWith(reader)
 
+	commitSuffix := ""
+	if commit != "none" && commit != "" {
+		short := commit
+		if len(short) > 7 {
+			short = short[:7]
+		}
+		commitSuffix = fmt.Sprintf(" (%s)", short)
+	}
 	fmt.Println("============================================================")
-	fmt.Printf("  cc-session Reader %s - 終端互動面板 (TUI)\n", version)
+	fmt.Printf("  cc-session Reader %s%s - 終端互動面板 (TUI)\n", version, commitSuffix)
 	fmt.Println("============================================================")
 
 	for {
@@ -199,7 +207,8 @@ func runSessionWorkspaceNonInteractive(in *bufio.Reader, entries []parser.Sessio
 	if limit == 0 {
 		fmt.Println("未找到任何 Claude Code 會話。")
 		fmt.Println("--------------------------------------------------------------------------------")
-		fmt.Print("請輸入操作 [b 評估, m 手動輸入ID, 0 離開] > ")
+		fmt.Println(" 操作選項: [M] 手動輸入 Session ID  |  [B] 成本評估  |  [H] 命令速查  |  [Q] 離開")
+		fmt.Print("請選擇操作 > ")
 	} else {
 		for i := 0; i < limit; i++ {
 			entry := entries[i]
@@ -224,7 +233,8 @@ func runSessionWorkspaceNonInteractive(in *bufio.Reader, entries []parser.Sessio
 				entry.UserMessageCount, entry.AssistantMessageCount, refMarker, prompt)
 		}
 		fmt.Println("--------------------------------------------------------------------------------")
-		fmt.Print("請輸入操作 [1-", limit, " 讀取, c <序號> context, s <序號> stats, b 評估, 0 離開] > ")
+		fmt.Println(" 操作選項: [<序號> 讀取] | [C <序號> Context] | [S <序號> 統計] | [Y <序號> 複製ID] | [B 評估] | [M 手動輸入] | [Q 離開]")
+		fmt.Print("請輸入操作 > ")
 	}
 
 	input := strings.TrimSpace(readLine(in))
@@ -239,8 +249,24 @@ func runSessionWorkspaceNonInteractive(in *bufio.Reader, entries []parser.Sessio
 	case "b", "benchmark":
 		handleBenchmarkInteractive(in, store, reader)
 		return "continue"
-	case "h", "help":
+	case "h", "help", "?":
 		handleHelpInteractive(in)
+		return "continue"
+	case "m", "manual":
+		handleManualSessionInteractive(in, store, reader)
+		return "continue"
+	case "y", "copy":
+		idx := 1
+		if len(parts) > 1 {
+			if parsed, err := strconv.Atoi(parts[1]); err == nil && parsed >= 1 && parsed <= limit {
+				idx = parsed
+			}
+		}
+		if limit > 0 && idx <= limit {
+			_ = copyToClipboard(entries[idx-1].SessionID)
+			fmt.Printf("\n已成功複製 Session ID 至剪貼簿：%s\n", entries[idx-1].SessionID)
+			waitForEnter(in)
+		}
 		return "continue"
 	case "c", "context":
 		if len(parts) > 1 {

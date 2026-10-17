@@ -21,10 +21,18 @@ if (-not (Test-Path -LiteralPath $localAppDir)) {
 $env:GOFLAGS = "-buildvcs=false"
 $env:GOOS = "windows"
 
-Write-Host "==> Building Windows amd64 binary"
+$gitSha = "none"
+try {
+    $gitSha = (git rev-parse HEAD).Trim()
+} catch {
+    $gitSha = "none"
+}
+$ldFlags = "-s -w -X main.version=v0.1.82 -X main.commit=$gitSha"
+
+Write-Host "==> Building Windows amd64 binary (commit: $gitSha)"
 $env:GOARCH = "amd64"
 $amd64Bin = Join-Path $distDir "cc-session.exe"
-go build -ldflags "-s -w" -o $amd64Bin ./cmd/cc-session
+go build -ldflags $ldFlags -o $amd64Bin ./cmd/cc-session
 
 Write-Host "==> Installing amd64 binary to LocalAppData"
 $installedBin = Join-Path $localAppDir "cc-session.exe"
@@ -45,7 +53,7 @@ Compress-Archive -Path $amd64Bin -DestinationPath $amd64Zip -Force
 Write-Host "==> Building Windows arm64 binary"
 $env:GOARCH = "arm64"
 $arm64Bin = Join-Path $distDir "cc-session_arm64.exe"
-go build -ldflags "-s -w" -o $arm64Bin ./cmd/cc-session
+go build -ldflags $ldFlags -o $arm64Bin ./cmd/cc-session
 
 Write-Host "==> Packaging Windows arm64 zip"
 $arm64Temp = Join-Path $distDir "arm64_temp"
