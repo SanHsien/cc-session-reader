@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -401,6 +403,11 @@ def main() -> int:
         action="store_true",
         help="Return non-zero when new commits require review.",
     )
+    parser.add_argument(
+        "--github-output",
+        action="store_true",
+        help="Append has_updates=<bool> to $GITHUB_OUTPUT for the workflow.",
+    )
     args = parser.parse_args()
 
     baseline: dict
@@ -457,6 +464,18 @@ def main() -> int:
     output = Path(args.output)
     output.write_text(report, encoding="utf-8")
     print(report)
+
+    unavailable = [
+        name
+        for name, value in (("pull requests", prs), ("issues", issues))
+        if value is None
+    ]
+    needs_attention = bool(error or commits or prs or issues or release or unavailable)
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    if args.github_output and github_output:
+        with open(github_output, "a", encoding="utf-8") as handle:
+            handle.write(f"has_updates={'true' if needs_attention else 'false'}\n")
+    print(f"has_updates={needs_attention}", file=sys.stderr)
 
     if error:
         return 2

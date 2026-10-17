@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: upstream-check
@@ -43,16 +44,51 @@ jobs:
         id: upstream
         continue-on-error: true
         shell: bash
-        run: python tools/check_upstream_updates.py --strict
+        run: |
+          python tools/check_upstream_updates.py \
+            --strict \
+            --github-output \
+            --output upstream-review-report.md
 
       - name: Publish report
         if: always()
         shell: bash
         run: cat upstream-review-report.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Require review when upstream changed
-        if: steps.upstream.outcome == 'failure'
+      - name: Open or update upstream review issue
+        if: steps.upstream.outputs.has_updates == 'true'
         shell: bash
         run: |
-          echo "::error::Upstream changed or the check failed. Review the workflow summary."
+          # 沿用同一個 issue，避免每週開一張新的把列表淹掉
+          issue_json="$(gh issue list \
+            --state all \
+            --search '上游更新檢查 in:title' \
+            --json number,state \
+            --jq '.[0] // {}')"
+          issue="$(echo "$issue_json" | jq -r '.number // empty')"
+          if [ -n "$issue" ]; then
+            if [ "$(echo "$issue_json" | jq -r '.state')" = "CLOSED" ]; then
+              gh issue reopen "$issue"
+            fi
+            gh issue edit "$issue" --body-file upstream-review-report.md
+          else
+            gh issue create \
+              --title "上游更新檢查：有新 release / commit 待審視" \
+              --body-file upstream-review-report.md
+          fi
+
+      - name: Close upstream review issue when caught up
+        if: steps.upstream.outputs.has_updates == 'false'
+        shell: bash
+        run: |
+          issue="$(gh issue list --state open --search '上游更新檢查 in:title' --json number --jq '.[0].number // empty')"
+          if [ -n "$issue" ]; then
+            gh issue close "$issue" --comment "本次排程檢查輸出 has_updates=false：已無待審視的上游項目，自動關閉。"
+          fi
+
+      - name: Require review when upstream changed
+        if: steps.upstream.outcome == 'failure' || steps.upstream.outputs.has_updates == 'true'
+        shell: bash
+        run: |
+          echo "::error::Upstream changed or the check failed. Review the workflow summary or issue."
           exit 1
