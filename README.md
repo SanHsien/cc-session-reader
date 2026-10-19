@@ -99,6 +99,10 @@ pwsh -NoProfile -File tools/dev_check.ps1
 
 本 Fork 只維護 Windows amd64/arm64。公開上游文件提供繁體中文與英文鏡像；Fork 內部治理文件可只使用繁體中文。
 
+## 多 Agent 流水線
+
+本 repo 是 [agent-relay](https://github.com/SanHsien/agent-relay) 多 Agent 派工與驗收流水線的一環（角色：會話精簡讀取）。與 agent-relay 的整合規劃中（Phase 2）。協定規格與所有相關 repo 的總目錄見 agent-relay。
+
 ## 授權與來源
 
 本專案依 Apache License 2.0 授權。原始作品與上游來源詳見 [NOTICE.md](NOTICE.md)、[FORK.md](FORK.md) 與 [LICENSE](LICENSE)。

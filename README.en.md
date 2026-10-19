@@ -99,6 +99,10 @@ pwsh -NoProfile -File tools/dev_check.ps1
 
 This fork maintains Windows amd64/arm64 only. Public upstream documentation has Traditional Chinese and English mirrors; fork-local governance documents may remain Traditional Chinese only.
 
+## Multi-agent pipeline
+
+This repo is part of the [agent-relay](https://github.com/SanHsien/agent-relay) multi-agent dispatch and verification pipeline (role: compact session reading). Integration with agent-relay is planned (Phase 2). The protocol spec and the index of all related repos live in agent-relay.
+
 ## License and provenance
 
 Licensed under the Apache License 2.0. See [NOTICE.md](NOTICE.md), [FORK.md](FORK.md), and [LICENSE](LICENSE) for upstream provenance and fork details.
