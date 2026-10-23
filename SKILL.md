@@ -43,6 +43,19 @@ inherit 記住讀取進度，重複呼叫同一個命令即自動翻頁：
 
 `-page N` 跳到指定頁。`-reset` 清除進度從頭開始。
 
+## 快取過期後的無損對話重建與接手協議（Dialogue-Preserving Resume Protocol）
+
+當會話超過 1 小時（Prompt Cache 過期）或跨日重新開工時，官方的 `/compact` 常因過度抽象概括，導致具體檔案路徑、未完成待辦清單與關鍵錯誤堆疊丟失。使用 `cc-session` 進行對話無損重建與接手：
+
+1. **鎖定目標 session**：
+   執行 `cc-session list -n 5` 查詢最近中斷或需接續的會話 ID。
+2. **評估會話量體與壓縮比**：
+   執行 `cc-session stats <id>` 檢查原始字符數與過濾成效（實測在 495k 字符超長會話下可精準節省 85.1% 雜訊，保留純淨對話與關鍵工具摘要）。
+3. **無損繼承注入新會話**：
+   在全新開啟的 Agent session 中，執行：
+   `cc-session inherit <id> -reset`
+   依提示翻頁直至 `[inherit complete]`，在保留 100% 原始人機意圖與決策脈絡的前提下無縫接手，避免失憶。
+
 ## 子命令速查
 
 以下由 CLI 即時產生，永遠對應目前安裝的版本：

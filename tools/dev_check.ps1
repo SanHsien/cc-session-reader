@@ -78,7 +78,8 @@ $pairs = @(
     @('docs\adr-005-collapse-retry-loops-and-reads.md', 'docs\adr-005-collapse-retry-loops-and-reads.zh-TW.md'),
     @('docs\adr-007-format-changes-measured.md', 'docs\adr-007-format-changes-measured.en.md'),
     @('docs\adr-008-harness-event-drift.md', 'docs\adr-008-harness-event-drift.en.md'),
-    @('docs\adr-009-prompt-source-field.md', 'docs\adr-009-prompt-source-field.en.md')
+    @('docs\adr-009-prompt-source-field.md', 'docs\adr-009-prompt-source-field.en.md'),
+    @('docs\adr-010-dialogue-preserving-resume.md', 'docs\adr-010-dialogue-preserving-resume.en.md')
 )
 foreach ($pair in $pairs) {
     foreach ($path in $pair) {
