@@ -14,7 +14,7 @@
  
  | 檔案 | 說明 |
  |---|---|
- | `AGENTS.md` / `CLAUDE.md` | 本 fork 的 AI 治理規範與路由指引 |
+ | `AGENTS.md` | 本 fork 的 AI 治理規範與路由指引 |
  | `NOTICE.md` / `FORK.md` | 原始版權聲明、變更記錄與 fork 宗旨 |
  | `README.md` / `README.en.md` | 繁體中文主要說明與英文鏡像 |
 | `skills/agent-handoff/SKILL.md` | Codex、Claude 與其他 Agent 共用的兩階段交接 Skill |
