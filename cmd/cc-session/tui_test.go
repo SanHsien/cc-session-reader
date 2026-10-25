@@ -18,6 +18,9 @@ func TestTruncatePrompt_GivenLongChinesePrompt_ThenResultIsValidUTF8(t *testing.
 	if !utf8.ValidString(got) {
 		t.Fatalf("truncatePrompt cut inside a multi-byte character: %q", got)
 	}
+	if n := utf8.RuneCountInString(got); n != 35 {
+		t.Fatalf("truncated prompt should be 32 characters plus ellipsis (35), got %d", n)
+	}
 	if !strings.HasSuffix(got, "...") {
 		t.Fatalf("truncated prompt should end with ellipsis, got %q", got)
 	}
@@ -95,6 +98,9 @@ func TestDisplayWithPaging_GivenShowAllKey_ThenEveryLineIsPrinted(t *testing.T) 
 	if !completed {
 		t.Fatal("showing everything should report completion")
 	}
+	if strings.Count(out, "line-031") != 1 {
+		t.Fatal("lines after the first page must be printed exactly once")
+	}
 	for _, want := range []string{"line-001", "line-060", "line-100"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output is missing %s after pressing [a]; later lines were dropped", want)
@@ -105,10 +111,14 @@ func TestDisplayWithPaging_GivenShowAllKey_ThenEveryLineIsPrinted(t *testing.T) 
 func TestDisplayWithPaging_GivenContinueKeys_ThenEveryLineIsPrinted(t *testing.T) {
 	stubKeys(t, keyEvent{kind: keyEnter}, keyEvent{kind: keyEnter}, keyEvent{kind: keyEnter})
 
+	var completed bool
 	out := captureStdout(t, func() {
-		displayWithPaging(bufio.NewReader(strings.NewReader("")), numberedLines(100))
+		completed = displayWithPaging(bufio.NewReader(strings.NewReader("")), numberedLines(100))
 	})
 
+	if !completed {
+		t.Fatal("paging to the end should report completion")
+	}
 	if !strings.Contains(out, "line-100") {
 		t.Fatal("paging with Enter never reached the last line")
 	}
