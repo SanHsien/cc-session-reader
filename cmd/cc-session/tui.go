@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Mapleeeeeeeeeee/cc-session-reader/internal/claudecodec"
 	"github.com/Mapleeeeeeeeeee/cc-session-reader/internal/parser"
@@ -114,10 +115,7 @@ func runSessionWorkspaceInteractive(in *bufio.Reader, entries []parser.SessionLi
 			if callerIDs[entry.SessionID] {
 				refMarker = " [refs]"
 			}
-			prompt := entry.FirstPrompt
-			if len(prompt) > 35 {
-				prompt = prompt[:32] + "..."
-			}
+			prompt := truncatePrompt(entry.FirstPrompt)
 			prefix := "   "
 			colorStart := ""
 			colorEnd := ""
@@ -224,10 +222,7 @@ func runSessionWorkspaceNonInteractive(in *bufio.Reader, entries []parser.Sessio
 			if callerIDs[entry.SessionID] {
 				refMarker = " [refs]"
 			}
-			prompt := entry.FirstPrompt
-			if len(prompt) > 35 {
-				prompt = prompt[:32] + "..."
-			}
+			prompt := truncatePrompt(entry.FirstPrompt)
 			fmt.Printf(" [%2d] %s  %s  %-15s %3dm  u:%-2d a:%-2d%s  %s\n",
 				i+1, entry.SessionID, dateStr, projectName, entry.DurationMinutes,
 				entry.UserMessageCount, entry.AssistantMessageCount, refMarker, prompt)
@@ -564,4 +559,12 @@ func copyToClipboard(text string) error {
 		return cmd.Run()
 	}
 	return fmt.Errorf("未找到剪貼簿命令 (clip/pbcopy/xclip)")
+}
+
+// truncatePrompt shortens a session's first prompt for the list view.
+func truncatePrompt(s string) string {
+	if utf8.RuneCountInString(s) > 35 {
+		return string([]rune(s)[:32]) + "..."
+	}
+	return s
 }
