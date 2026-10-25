@@ -17,6 +17,12 @@ import (
 	"github.com/Mapleeeeeeeeeee/cc-session-reader/internal/tracker"
 )
 
+// Indirections so tests can drive the interactive paths without a console.
+var (
+	isInteractive = isInteractiveTerminal
+	readKey       = readKeyInteractive
+)
+
 // cmdTUI launches the interactive terminal user interface.
 func cmdTUI(args []string, reader claudecodec.Codec) {
 	runInteractiveMenu(reader)
@@ -444,7 +450,7 @@ func displayWithPaging(in *bufio.Reader, text string) bool {
 	total := len(lines)
 	pageSize := 30
 
-	if total <= pageSize || !isInteractiveTerminal() {
+	if total <= pageSize || !isInteractive() {
 		for _, line := range lines {
 			fmt.Println(line)
 		}
@@ -452,7 +458,6 @@ func displayWithPaging(in *bufio.Reader, text string) bool {
 	}
 
 	current := 0
-	showAll := false
 
 	for current < total {
 		end := current + pageSize
@@ -465,13 +470,13 @@ func displayWithPaging(in *bufio.Reader, text string) bool {
 		}
 		current = end
 
-		if current >= total || showAll {
+		if current >= total {
 			break
 		}
 
 		fmt.Printf("\n-- 閱讀中 (%d/%d 行) -- [Enter/Space/↓] 繼續閱讀  |  [q/Esc] 中途跳出  |  [a] 全部顯示 > ", current, total)
 
-		ev := readKeyInteractive()
+		ev := readKey()
 		switch ev.kind {
 		case keyEscape:
 			fmt.Println("\n[已中途跳出，返回會話列表]")
@@ -485,7 +490,11 @@ func displayWithPaging(in *bufio.Reader, text string) bool {
 				fmt.Println("\n[已中途跳出，返回會話列表]")
 				return false
 			case "a":
-				showAll = true
+				fmt.Println("")
+				for _, line := range lines[current:] {
+					fmt.Println(line)
+				}
+				return true
 			}
 		}
 		fmt.Println("")
