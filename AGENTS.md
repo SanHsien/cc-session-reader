@@ -4,7 +4,7 @@
 
 ## 核心原則與邊界
 
-1. **對外只打主人的 Repo**：
+1. **對外只打維護者的 Repo**：
    - 預設遠端一律指向 `SanHsien/cc-session-reader`。
    - 禁止向 upstream（母倉庫）直接 push 或開 PR。
 2. **GUI 優先與兩階段交接**：

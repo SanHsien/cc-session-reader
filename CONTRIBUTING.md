@@ -6,7 +6,7 @@
 
 ## 原則與規範
 
-1. **對外只打主人的倉庫**：
+1. **對外只打維護者的倉庫**：
    - PR、push 一律指向 `SanHsien/cc-session-reader`，預設遠端為 `origin`。
    - **嚴禁向 upstream 母倉庫直接提出 PR 或推送**。
 2. **Windows 優先**：
