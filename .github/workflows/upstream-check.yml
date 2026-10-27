@@ -46,10 +46,17 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          python tools/check_upstream_updates.py \
-            --strict \
-            --github-output \
-            --output upstream-review-report.md
+          # The checker exit code is the contract: 0 clean, 1 something to review,
+          # 2 the check could not complete. Anything non-zero means "has updates".
+          set +e
+          python tools/check_upstream_updates.py --strict --output upstream-review-report.md
+          code=$?
+          if [ "$code" -eq 0 ]; then
+            echo "has_updates=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_updates=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$code"
 
       - name: Publish report
         if: always()
