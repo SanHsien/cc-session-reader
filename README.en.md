@@ -99,6 +99,20 @@ pwsh -NoProfile -File tools/dev_check.ps1
 
 This fork maintains Windows amd64/arm64 only. Public upstream documentation has Traditional Chinese and English mirrors; fork-local governance documents may remain Traditional Chinese only.
 
+### Package and install from source
+
+```powershell
+# Build and package into dist/ without changing the local installation
+powershell -NoProfile -File tools/build_dist.ps1
+
+# Explicitly install the native binary after successful packaging
+powershell -NoProfile -File tools/build_dist.ps1 -Install
+```
+
+Outputs include amd64/arm64 ZIPs and `checksums.txt` (SHA256); both ZIPs contain `cc-session.exe`. Only `-Install` overwrites `$env:LOCALAPPDATA\cc-session\cc-session.exe`. Build, packaging, or installation failures return a nonzero exit code; either build failing prevents installation.
+
+The full development gate includes `tools/build_dist_test.ps1`: it uses an isolated fake installation to check the installed file hash, both architectures' ZIPs/checksums, explicit installation, and build failure handling without reading private sessions. Test output remains in `dist/build-dist-test-*/`.
+
 ## Multi-agent pipeline
 
 This repo is part of the [agent-relay](https://github.com/SanHsien/agent-relay) multi-agent dispatch and verification pipeline (role: compact session reading). Integration with agent-relay is planned (Phase 2). The protocol spec and the index of all related repos live in agent-relay.

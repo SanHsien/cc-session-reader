@@ -99,6 +99,20 @@ pwsh -NoProfile -File tools/dev_check.ps1
 
 本 Fork 只維護 Windows amd64/arm64。公開上游文件提供繁體中文與英文鏡像；Fork 內部治理文件可只使用繁體中文。
 
+### 從原始碼打包與安裝
+
+```powershell
+# 只建置與打包至 dist/，不變更本機安裝
+powershell -NoProfile -File tools/build_dist.ps1
+
+# 打包成功後，明確安裝符合本機架構的執行檔
+powershell -NoProfile -File tools/build_dist.ps1 -Install
+```
+
+輸出包含 amd64／arm64 ZIP 與 `checksums.txt`（SHA256）；ZIP 內皆為 `cc-session.exe`。`-Install` 才會覆寫 `$env:LOCALAPPDATA\cc-session\cc-session.exe`。建置、打包或安裝失敗會回傳非零退出碼；任一建置失敗均不安裝。
+
+完整開發閘門包含 `tools/build_dist_test.ps1`：使用隔離的假安裝位置，檢查安裝檔雜湊、兩種架構的 ZIP／checksums、明確安裝與建置失敗處理，不讀私人會話。測試輸出保留在 `dist/build-dist-test-*/`。
+
 ## 多 Agent 流水線
 
 本 repo 是 [agent-relay](https://github.com/SanHsien/agent-relay) 多 Agent 派工與驗收流水線的一環（角色：會話精簡讀取）。與 agent-relay 的整合規劃中（Phase 2）。協定規格與所有相關 repo 的總目錄見 agent-relay。

@@ -132,6 +132,10 @@ if (-not $Quick) {
     & $go.Source build ./...
     if ($LASTEXITCODE -ne 0) { throw "go build failed with exit code $LASTEXITCODE" }
     Write-Host '  [OK] Go tests and build passed'
+
+    Write-Host '==> Testing isolated distribution builds'
+    & powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_dist_test.ps1
+    if ($LASTEXITCODE -ne 0) { throw "Distribution tests failed with exit code $LASTEXITCODE" }
 }
 
 Write-Host '==> Checking upstream baseline'
