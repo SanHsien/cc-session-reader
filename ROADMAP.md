@@ -1,15 +1,15 @@
 # 路線圖
 
 > 本 repo 後續工作的單一真相源。做完一項，就在同一個 commit 刪掉那一列；新工作只加在這裡。
-> 現況段的數字是 2026-10-29 依 `main` `67c60de9defd` 查的快照，開工前先重查 GitHub。
+> 現況段的數字是 2026-11-08 依 `main` `ebe81a7` 查的快照，開工前先重查 GitHub。
 
 ## 現況
-這是 Windows 多 Agent 交接工具：日常以 HANDOFF.md 交接，只有匯入舊 Claude Code session 才使用靜態解析器（[README.md:9](README.md)、[README.md:31](README.md)）。2026-10-29 `gh` 查詢顯示 open issue、PR 與安全告警皆為 0，CI、CodeQL、Dependency freshness、Upstream check 最近結果成功，最近 release 為 v0.1.82（2026-10-29 `gh` 查詢）。近期中文截斷與全部顯示修正已在來源碼（commit `d8a6db0`、`b005f8f`）。打包腳本預設只輸出至 `dist/`，僅明確傳入 `-Install` 才安裝；隔離回歸測試已納入完整本機閘門（[tools/build_dist.ps1](tools/build_dist.ps1)、[tools/build_dist_test.ps1](tools/build_dist_test.ps1)）。
+這是 Windows 多 Agent 交接工具：日常以 HANDOFF.md 交接，只有匯入舊 Claude Code session 才使用靜態解析器（[README.md:9](README.md)、[README.md:31](README.md)）。2026-11-08 `gh` 查詢：open PR 0、Dependabot 與 code scanning open alert 0，`main` 最近的 CI、CodeQL 為 success；最近 release 為 v0.1.82（2026-10-29 `gh` 查詢）。2026-11-07 已脫離 GitHub fork 網路（見 `docs/fork/DECISIONS.md`）。近期中文截斷與全部顯示修正已在來源碼（commit `d8a6db0`、`b005f8f`）。打包腳本預設只輸出至 `dist/`，僅明確傳入 `-Install` 才安裝；隔離回歸測試已納入完整本機閘門（[tools/build_dist.ps1](tools/build_dist.ps1)、[tools/build_dist_test.ps1](tools/build_dist_test.ps1)）。
 
 ## 近期：可以直接動手
 | 項目 | 為什麼 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
-| 補修正後 TUI 的實際操作驗收 | 自動測試已涵蓋資料完整性，仍需確認 Windows 主控台操作 | 以假造長會話啟動 TUI，核對中文預覽不亂碼、按 a 顯示至尾行且不重複、q 返回列表、終端歷史仍保留；不讀私人會話 | 維護者 | commit `76605a4`；[README.md:77](README.md)；深掃報告（2026-10-27）「已修」 |
+| 補修正後 TUI 的實際操作驗收 | 自動測試已涵蓋資料完整性，仍需確認 Windows 主控台操作 | 前置條件：維護者不在使用電腦、`focus-window` 成功且前景就是目標主控台，否則中止。以假造長會話啟動 TUI，核對中文預覽不亂碼、按 a 顯示至尾行且不重複、q 返回列表、終端歷史仍保留；不讀私人會話；結果寫進 `docs/fork/DECISIONS.md` | Claude 主 session（agent-desktop） | commit `76605a4`；[README.md:77](README.md)；深掃報告（2026-10-27）「已修」 |
 
 ## 中期：等條件成立再做
 | 項目 | 觸發條件 | 驗收方式 | 建議執行者 | 證據 |
