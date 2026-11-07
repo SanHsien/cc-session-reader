@@ -9,7 +9,6 @@
 ## 近期：可以直接動手
 | 項目 | 為什麼 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
-| 離開 GitHub fork 網路（Settings → General → Danger Zone → Leave fork network，https://github.com/SanHsien/cc-session-reader/settings） | 本線已有獨有功能並分叉獨立發展（`docs/fork/DECISIONS.md` 2026-11-07）；不可逆，維護者確認後本人按 | `gh api repos/SanHsien/cc-session-reader --jq .fork` 回 `false`；release `v0.1.82` 還在（不在就從備份重建）；README／NOTICE 的來源段落仍在；`main` 的 CI 仍 success | 維護者 | `docs/fork/DECISIONS.md` 2026-11-07；repo-fleet-ops `docs/FORK-NETWORK-REVIEW.md` |
 | 補修正後 TUI 的實際操作驗收 | 自動測試已涵蓋資料完整性，仍需確認 Windows 主控台操作 | 以假造長會話啟動 TUI，核對中文預覽不亂碼、按 a 顯示至尾行且不重複、q 返回列表、終端歷史仍保留；不讀私人會話 | 維護者 | commit `76605a4`；[README.md:77](README.md)；深掃報告（2026-10-27）「已修」 |
 
 ## 中期：等條件成立再做
