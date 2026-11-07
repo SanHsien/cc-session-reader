@@ -28,3 +28,12 @@
 - **獨立 Console 雙擊防閃退機制**：透過 Windows API `GetConsoleProcessList` 檢測是否由檔案總管雙擊建立獨立終端；若為雙擊且未帶參數或遇錯，自動進入 TUI 或提示暫停，徹底杜絕執行後閃退問題。
 - **輕量終端互動面板 (TUI)**：實作無額外 Webview/HTTP 負擔的零依賴 TUI（`ui` / `tui` 子命令，或無參數終端自動啟動），提供數字選單、最近會話序號讀取、格式化預覽、一鍵複製至系統剪貼簿 (`clip`) 等友善按鈕化體驗。
 - **Agent TUI 串流追加與方向鍵導航**：取消畫面清空行為，比照 Agent TUI 採用串流追加模式，完整保留終端歷史滾動條；並透過原生 Windows `msvcrt.dll` (`_getch`) 與 ANSI 局部游標回跳 (`\033[NA`)，支援 `↑ / ↓`、`j / k` 移動光棒游標、`Enter` 確認，且相容直接按數字鍵與管線非互動輸入。
+
+## 2026-11-07：離開 GitHub fork 網路（等維護者按）
+
+- **判準**：維護者 2026-11-07 定的：與上游差異大、本線有獨有功能、已分叉獨立發展，就可以脫離；與上游有沒有共用歷史、上游活不活躍都不列入（repo-fleet-ops `docs/PLAYBOOK.md` §9）。
+- **本線的獨有功能**：跨 Agent 兩階段交接 skill（`skills/agent-handoff`）、零依賴 TUI、PE 圖示與雙擊防閃退、Windows 兩種架構的發行包。
+- **決定**：建議在 Settings → General → Danger Zone 按 Leave fork network（https://github.com/SanHsien/cc-session-reader/settings）。不可逆，由維護者本人按。
+- **來源 credit 不靠 fork 標示**：README 開頭、`NOTICE.md`、`FORK.md` 都寫明 fork 自 [`Mapleeeeeeeeeee/cc-session-reader`](https://github.com/Mapleeeeeeeeeee/cc-session-reader) 與授權，脫離後原樣保留。
+- **上游追蹤照舊**：`tools/upstream_baseline.json` 與 `Upstream check` workflow 不依賴 fork 標示；repo-fleet-ops 的 `audit` 認水位檔，換台電腦重新 clone 也照樣要求上游檢查。
+- **會遺失**：GitHub 文件說不保留 issue、PR、wiki、star、watcher。2026-11-07 查：PR 1 筆（已結束）、issue 0、star 0、wiki 沒有內容。release `v0.1.82` 是否保留文件沒寫，資產與說明已備份到維護者的 `OneDrive\文件\電腦維護\2026-11 fork 脫離前 release 備份\``（雜湊已核對）。
