@@ -14,6 +14,7 @@
 ## 中期：等條件成立再做
 | 項目 | 觸發條件 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
+| 重評要不要離開 GitHub fork 網路 | 上游預設分支到 2026-12-27 仍沒有新 commit（最後一筆 2026-09-28，滿 90 天），或上游 archived／刪除 | 照 repo-fleet-ops PLAYBOOK §9 重判；改判「建議脫離」時先補齊 README／NOTICE 的來源段落、確認 release 資產可重建，再列給維護者確認（按鈕由維護者按） | Claude Opus | 2026-11-07 評估判「再觀察」：本線改定位成多 Agent 交接工具（`skills/agent-handoff`），但解析器本體與 release 版號仍跟上游（repo-fleet-ops `docs/FORK-NETWORK-REVIEW.md`）；查法 `gh api "repos/Mapleeeeeeeeeee/cc-session-reader/commits?per_page=1"` |
 | 發布含 TUI 修正的 fork 版本 | 打包隔離與 Windows TUI 驗收完成，維護者決定發版 | 用候選 SHA 建置 Windows 兩種架構，核對 checksums、版本與下載包，下載後測中文與長文分頁；確認新包可用後才依既定策略處理舊 release | Codex | [docs/fork/DECISIONS.md:14](docs/fork/DECISIONS.md)、[README.md:58](README.md)、[tools/build_dist.ps1:51](tools/build_dist.ps1) |
 | 重評窄終端重繪與中文剪貼簿 | 在窄視窗、舊 conhost 或碼頁 950 重現問題 | 保存終端版本、寬度、碼頁與假資料；修正後驗證導航無錯位、中文複製無亂碼且不帶 BOM 字元 | Codex | 深掃報告（2026-10-27）「刻意不修」；[docs/fork/DECISIONS.md:29](docs/fork/DECISIONS.md) |
 | 接入 agent-relay 的交接流程 | agent-relay Phase 2 協定與 ownership 邊界確認 | 用合成會話完成彙整、接手與過期 HEAD 拒絕案例；日常交接不強制讀完整歷史，保留對話與關鍵工具摘要 | Codex | [README.md:104](README.md)、[AGENTS.md:11](AGENTS.md)、[README.md:37](README.md) |
