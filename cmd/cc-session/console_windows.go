@@ -11,9 +11,38 @@ import (
 )
 
 var (
-	kernel32                 = syscall.NewLazyDLL("kernel32.dll")
+	kernel32                  = syscall.NewLazyDLL("kernel32.dll")
 	procGetConsoleProcessList = kernel32.NewProc("GetConsoleProcessList")
+	procGetConsoleMode        = kernel32.NewProc("GetConsoleMode")
+	procSetConsoleMode        = kernel32.NewProc("SetConsoleMode")
 )
+
+// enableVirtualTerminal enables ANSI output without changing other console flags.
+// Redirected stdout and consoles without VT support fall back to plain text.
+// The returned restore func puts the original console mode back so the parent
+// shell does not inherit the change.
+func enableVirtualTerminal() (bool, func()) {
+	noop := func() {}
+	if procGetConsoleMode.Find() != nil || procSetConsoleMode.Find() != nil {
+		return false, noop
+	}
+	var mode uint32
+	handle := os.Stdout.Fd()
+	ok, _, _ := procGetConsoleMode.Call(handle, uintptr(unsafe.Pointer(&mode)))
+	if ok == 0 {
+		return false, noop
+	}
+	const enableVirtualTerminalProcessing = 0x0004
+	if mode&enableVirtualTerminalProcessing != 0 {
+		return true, noop
+	}
+	ok, _, _ = procSetConsoleMode.Call(handle, uintptr(mode|enableVirtualTerminalProcessing))
+	if ok == 0 {
+		return false, noop
+	}
+	original := mode
+	return true, func() { _, _, _ = procSetConsoleMode.Call(handle, uintptr(original)) }
+}
 
 // isAloneOnConsole checks whether this process was launched in its own
 // dedicated console window (e.g., by double-clicking cc-session.exe in File Explorer)

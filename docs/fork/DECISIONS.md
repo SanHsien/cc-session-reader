@@ -38,3 +38,13 @@
 - **上游追蹤照舊**：`tools/upstream_baseline.json` 與 `Upstream check` workflow 不依賴 fork 標示；repo-fleet-ops 的 `audit` 認水位檔，換台電腦重新 clone 也照樣要求上游檢查。
 - **會遺失**：GitHub 文件說不保留 issue、PR、wiki、star、watcher。2026-11-07 查：PR 1 筆（已結束）、issue 0、star 0、wiki 沒有內容。release `v0.1.82` 是否保留文件沒寫，資產與說明已備份到維護者的 `OneDrive\文件\電腦維護\2026-11 fork 脫離前 release 備份\`（雜湊已核對）。
 - **結果**：維護者 2026-11-07 已按。驗收：`gh api repos/SanHsien/cc-session-reader --jq .fork` 回 `false`、`parent` 為空；PR 1 筆、release v0.1.82（3 個資產）都還在（GitHub 文件說 PR 不保留，實際保留）；Dependabot 告警與 Actions 照常；分支保護仍在；repo-fleet-ops `audit` 0 缺口。
+
+## 2026-11-14：TUI Windows 主控台實機驗收與兩個修正
+
+- **做法**：以假造的長會話（241 則訊息、讀取輸出約 725 行，不含私人會話）在傳統 `conhost.exe` 啟動 `cc-session ui`，用 agent-desktop 送鍵並截圖核對；實體按鍵前確認目標主控台在前景。
+- **第一輪發現兩個缺陷**：
+  - TUI 讀取吃到 `read` 子命令預設的 200 行上限，按 a「全部顯示」只到第 200 行，結尾印出要使用者下 `--offset 200` 的 CLI 提示，TUI 內無法續看；[C] 複製也只到截斷處。
+  - 傳統主控台沒有開 `ENABLE_VIRTUAL_TERMINAL_PROCESSING`，列表的色碼原樣印成 `[1;36m`、`[0m`。
+- **修正**：TUI 的讀取與 Context 都改帶 `--max-lines 0`（CLI `read`、`context` 預設 200 行不變）；Windows 啟動 TUI 時對 stdout 開 VT 處理，離開時還原原本的主控台模式，開不起來就不輸出色碼與游標控制碼。測試 `TestReadAndDisplaySession_GivenOver200Lines_ThenShowAllReachesLastMessageWithoutTruncation`、`TestHandleContextForSession_GivenOver200Lines_ThenShowAllReachesLastMessageWithoutTruncation`、`TestANSISequence_GivenUnavailableVT_ThenOmitsColorAndCursorEscapes`。
+- **修正後重驗（同一份假會話、同一種主控台）**：列表中文預覽不亂碼、選取列以青色顯示、沒有色碼亂字；按 a 一路顯示到尾行，沒有截斷提示，第 118～120 則與尾訊息依序出現、沒有重複；q 返回會話列表；再按 q 離開後，啟動前印的標記與整段輸出都還在終端歷史裡。列表按 C 進 Context、再按 a，也一路顯示到尾訊息，沒有截斷提示。VT 開不起來時（例如 stdout 被導向）不送游標上移碼，代價是每次移動選取都會把列表往下重印一次。
+- **操作注意**：注音輸入法開著時，送進主控台的 `a` 會被組字成「ㄇ」，要先切成英文模式；這是輸入法行為，不是本程式的問題。

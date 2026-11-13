@@ -19,9 +19,17 @@ import (
 
 // Indirections so tests can drive the interactive paths without a console.
 var (
-	isInteractive = isInteractiveTerminal
-	readKey       = readKeyInteractive
+	isInteractive  = isInteractiveTerminal
+	readKey        = readKeyInteractive
+	tuiANSIEnabled bool
 )
+
+func ansiSequence(enabled bool, sequence string) string {
+	if !enabled {
+		return ""
+	}
+	return sequence
+}
 
 // cmdTUI launches the interactive terminal user interface.
 func cmdTUI(args []string, reader claudecodec.Codec) {
@@ -29,6 +37,9 @@ func cmdTUI(args []string, reader claudecodec.Codec) {
 }
 
 func runInteractiveMenu(reader claudecodec.Codec) {
+	var restoreConsole func()
+	tuiANSIEnabled, restoreConsole = enableVirtualTerminal()
+	defer restoreConsole()
 	inReader := bufio.NewReader(os.Stdin)
 	store := parser.DefaultStoreWith(reader)
 
@@ -105,7 +116,7 @@ func runSessionWorkspaceInteractive(in *bufio.Reader, entries []parser.SessionLi
 
 	renderList := func(initial bool) {
 		if !initial {
-			fmt.Printf("\033[%dA", totalRenderLines)
+			fmt.Print(ansiSequence(tuiANSIEnabled, fmt.Sprintf("\033[%dA", totalRenderLines)))
 		}
 		for i := 0; i < limit; i++ {
 			entry := entries[i]
@@ -127,15 +138,15 @@ func runSessionWorkspaceInteractive(in *bufio.Reader, entries []parser.SessionLi
 			colorEnd := ""
 			if i == selected {
 				prefix = " ❯ "
-				colorStart = "\033[1;36m"
-				colorEnd = "\033[0m"
+				colorStart = ansiSequence(tuiANSIEnabled, "\033[1;36m")
+				colorEnd = ansiSequence(tuiANSIEnabled, "\033[0m")
 			}
-			fmt.Printf("\033[2K\r%s[%2d] %s%s  %s  %-15s %3dm  u:%-2d a:%-2d%s  %s%s\n",
-				prefix, i+1, colorStart, entry.SessionID, dateStr, projectName, entry.DurationMinutes,
+			fmt.Printf("%s%s[%2d] %s%s  %s  %-15s %3dm  u:%-2d a:%-2d%s  %s%s\n",
+				ansiSequence(tuiANSIEnabled, "\033[2K\r"), prefix, i+1, colorStart, entry.SessionID, dateStr, projectName, entry.DurationMinutes,
 				entry.UserMessageCount, entry.AssistantMessageCount, refMarker, prompt, colorEnd)
 		}
-		fmt.Printf("\033[2K\r--------------------------------------------------------------------------------\n")
-		fmt.Printf("\033[2K\r [↑/↓] 選擇會話 | [Enter] 讀取 | [C] Context | [S] 統計 | [Y] 複製ID | [B] 評估 | [Q] 離開\n")
+		fmt.Printf("%s--------------------------------------------------------------------------------\n", ansiSequence(tuiANSIEnabled, "\033[2K\r"))
+		fmt.Printf("%s [↑/↓] 選擇會話 | [Enter] 讀取 | [C] Context | [S] 統計 | [Y] 複製ID | [B] 評估 | [Q] 離開\n", ansiSequence(tuiANSIEnabled, "\033[2K\r"))
 	}
 
 	renderList(true)
@@ -326,7 +337,7 @@ func readAndDisplaySession(in *bufio.Reader, sessionID string, store parser.Stor
 	fmt.Println("================================================================================")
 
 	var buf bytes.Buffer
-	err := runRead([]string{sessionID}, &buf, os.Stderr, store, reader)
+	err := runRead([]string{sessionID, "--max-lines", "0"}, &buf, os.Stderr, store, reader)
 	if err != nil {
 		fmt.Println("================================================================================")
 		fmt.Printf("[錯誤] 讀取失敗: %v\n", err)
@@ -381,7 +392,7 @@ func handleContextForSession(in *bufio.Reader, id string, store parser.Store, re
 	fmt.Println("================================================================================")
 
 	var buf bytes.Buffer
-	err := runContext([]string{id}, &buf, os.Stderr, store, reader)
+	err := runContext([]string{id, "--max-lines", "0"}, &buf, os.Stderr, store, reader)
 	if err != nil {
 		fmt.Println("================================================================================")
 		fmt.Printf("[錯誤] 產生失敗: %v\n", err)

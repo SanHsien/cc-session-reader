@@ -5,10 +5,77 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/Mapleeeeeeeeeee/cc-session-reader/internal/parser"
 )
+
+func TestReadAndDisplaySession_GivenOver200Lines_ThenShowAllReachesLastMessageWithoutTruncation(t *testing.T) {
+	root, sid := writeLargeCLIFixture(t)
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+	stubKeys(t, keyEvent{kind: keyRune, char: 'a'})
+	// Use a pipe for stdin so the final return prompt needs no real console.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	orig := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = orig; r.Close() })
+	out := captureStdout(t, func() {
+		readAndDisplaySession(bufio.NewReader(strings.NewReader("\n")), sid, store, testReader)
+	})
+	if !strings.Contains(out, "msgxxxxx 99") {
+		t.Error("TUI show-all dropped the last message beyond line 200")
+	}
+	if strings.Contains(out, "truncated") {
+		t.Error("TUI must not show the CLI truncation hint")
+	}
+}
+
+func TestHandleContextForSession_GivenOver200Lines_ThenShowAllReachesLastMessageWithoutTruncation(t *testing.T) {
+	root, sid := writeLargeCLIFixture(t)
+	store := parser.Store{
+		ProjectsDir:    filepath.Join(root, ".claude", "projects"),
+		SessionMetaDir: filepath.Join(root, ".claude", "usage-data", "session-meta"),
+	}
+	stubKeys(t, keyEvent{kind: keyRune, char: 'a'})
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	orig := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = orig; r.Close() })
+	out := captureStdout(t, func() {
+		handleContextForSession(bufio.NewReader(strings.NewReader("\n")), sid, store, testReader)
+	})
+	if !strings.Contains(out, "msgxxxxx 99") {
+		t.Error("TUI context show-all dropped the last message beyond line 200")
+	}
+	if strings.Contains(out, "truncated") {
+		t.Error("TUI context must not show the CLI truncation hint")
+	}
+}
+
+func TestANSISequence_GivenUnavailableVT_ThenOmitsColorAndCursorEscapes(t *testing.T) {
+	for _, sequence := range []string{"\033[1;36m", "\033[0m", "\033[2K\r", "\033[17A"} {
+		if got := ansiSequence(false, sequence); got != "" {
+			t.Errorf("VT unavailable: got %q, want no escape sequence", got)
+		}
+		if got := ansiSequence(true, sequence); got != sequence {
+			t.Errorf("VT available: got %q, want %q", got, sequence)
+		}
+	}
+}
 
 func TestTruncatePrompt_GivenLongChinesePrompt_ThenResultIsValidUTF8(t *testing.T) {
 	prompt := strings.Repeat("修正登入頁面的錯誤", 5)
